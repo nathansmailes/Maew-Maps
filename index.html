@@ -66,6 +66,17 @@ main{flex:1;display:flex;min-height:0;position:relative}
 .tag{display:inline-block;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:var(--soft);color:var(--accent);font-weight:700;vertical-align:middle}
 
 .fr{font-size:.92rem}
+.rankchip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 12px;font-weight:700;display:flex;gap:6px;align-items:center;white-space:nowrap}
+.rankchip b{color:var(--accent);font-variant-numeric:tabular-nums}
+.badge{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--marigold) 22%,var(--panel));white-space:nowrap;vertical-align:middle}
+.myrank{display:flex;gap:14px;align-items:center}.myrank .big{font-size:3rem;line-height:1}
+.prog{height:10px;border-radius:999px;background:var(--soft);overflow:hidden}.prog span{display:block;height:100%;background:var(--marigold)}
+.earn,.ladder,.board{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.earn b{display:inline-block;min-width:32px;color:var(--accent)}
+.ladder li{display:flex;justify-content:space-between;padding:6px 10px;border-radius:8px}.ladder li.cur{background:var(--soft);font-weight:700}
+.board li{display:flex;gap:10px;align-items:center;padding:6px 10px;border-radius:8px}.board li.me{background:var(--soft)}
+.board .pl{width:20px;color:var(--muted);font-variant-numeric:tabular-nums}.board .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.board b{font-variant-numeric:tabular-nums;min-width:28px;text-align:right}
 .rep{background:none;border:0;padding:0;font-size:.8rem;color:var(--muted);align-self:flex-start}
 .rep:hover{color:var(--danger);text-decoration:underline}
 .repbox{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:12px;padding:10px;width:100%}
@@ -142,6 +153,8 @@ textarea{min-height:70px;resize:vertical}
   .banner{bottom:auto;top:12px;left:auto;right:12px;transform:none;width:auto;max-width:calc(100% - 70px)}
   #panel{width:100%;height:55%;border-right:0;border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(0,0,0,.12)}
   .brand small{display:none}
+  .rankchip span{display:none}
+  header{gap:8px}
   .hero{height:150px}
   .banner{white-space:normal;justify-content:space-between;border-radius:14px}
 }
@@ -152,6 +165,7 @@ textarea{min-height:70px;resize:vertical}
 <header>
   <h1 class="brand">🐈 Maew Maps <small>Neighbourhood cats, spotted by you</small></h1>
   <span class="spacer"></span>
+  <button class="rankchip" id="rankBtn" hidden></button>
   <button class="btn" id="addBtn">+ Add a cat</button>
 </header>
 <main>
@@ -251,7 +265,10 @@ const remote = {
     if(d.name) await remote.suggestName(data.id,d.name,true);
     if(d.rate) await remote.rate(data.id,d.rate,true);
     await refresh(); return data.id; },
-  async sighting(id){ await chk(sb.from("sightings").insert({cat_id:id})); await refresh(); },
+  async sighting(id){ const {error}=await sb.from("sightings").insert({cat_id:id});
+    if(error && error.code==="23505") throw {userMsg:"You've already logged this cat today. Come back tomorrow!"};
+    if(error) throw error; await refresh(); },
+  async nickname(n){ await chk(sb.from("profiles").upsert({user_id:me,nickname:n,updated_at:new Date().toISOString()})); await refresh(); },
   async vote(id,n){ const nm=find(id).names.find(x=>x.n===n);
     await chk(sb.from("votes").upsert({cat_id:id,user_id:me,name_id:nm.id})); await refresh(); },
   async suggestName(id,n,skipRefresh){
@@ -281,16 +298,25 @@ async function refresh(){
   names.forEach(n=>{ const c=byId[n.cat_id]; if(!c) return; const o={n:n.name,v:0,id:n.id}; nameById[n.id]=o; c.names.push(o); });
   votes.forEach(v=>{ const o=nameById[v.name_id]; if(!o) return; o.v++; if(v.user_id===me) state.mine.votes[v.cat_id]=o.n; });
   ratings.forEach(r=>{ const c=byId[r.cat_id]; if(!c) return; c.ratings.push(r.score); if(r.user_id===me) state.mine.rates[r.cat_id]=r.score; });
-  comments.forEach(m=>{ const c=byId[m.cat_id]; if(c) c.comments.push({id:m.id,who:m.who,t:m.body,at:Date.parse(m.created_at)}); });
+  comments.forEach(m=>{ const c=byId[m.cat_id]; if(c) c.comments.push({id:m.id,uid:m.user_id,who:m.who,t:m.body,at:Date.parse(m.created_at)}); });
+  /* Spotter points and leaderboard (only once 03-ranks.sql has been run) */
+  const [pts,board,prof]=await Promise.all([sb.rpc("all_points"),sb.rpc("leaderboard"),
+    me?sb.from("profiles").select("nickname").eq("user_id",me).maybeSingle():Promise.resolve({data:null})]);
+  state.ranksOn=!pts.error; state.points={};
+  if(!pts.error) pts.data.forEach(r=>state.points[r.user_id]=r.points);
+  state.board=board.error?[]:board.data; state.nick=(prof&&prof.data&&prof.data.nickname)||"";
 }
 
 /* Run a save, show a message, and say clearly if it didn't work */
 let busy=false;
 async function act(fn,msg){
   if(busy) return false; busy=true;
-  try{ await fn(); if(msg) toast(msg); return true; }
+  const before=myRank();
+  try{ await fn(); const after=myRank();
+    if(after && before && after.min>before.min) toast(`🎉 You're now a ${after.name}!`); else if(msg) toast(msg);
+    renderChip(); return true; }
   catch(e){ console.error(e);
-    toast(REMOTE && !me ? "You can look around, but adding things isn't switched on yet." : REMOTE ? "Couldn't save. Check your internet and try again." : "Couldn't save. The photo may be too big.");
+    toast(e&&e.userMsg ? e.userMsg : REMOTE && !me ? "You can look around, but adding things isn't switched on yet." : REMOTE ? "Couldn't save. Check your internet and try again." : "Couldn't save. The photo may be too big.");
     return false; }
   finally{ busy=false; } }
 
@@ -333,6 +359,47 @@ function distM(a,b){ const R=6371000,toR=Math.PI/180; const dLat=(b.lat-a.lat)*t
 /* Translate: Thai text gets "Translate to English", English gets "แปลเป็นภาษาไทย". Opens Google Translate in a new tab. */
 function tr(text){ const th=/[\u0E00-\u0E7F]/.test(text);
   return `<a class="tr" target="_blank" rel="noopener" href="https://translate.google.com/?sl=auto&tl=${th?"en":"th"}&op=translate&text=${encodeURIComponent(text)}">${th?"🌐 Translate to English":"🌐 แปลเป็นภาษาไทย"}</a>`; }
+/* ---------- Spotter ranks (like TripAdvisor contributor levels) ----------
+   Adding a new cat = 3 points. Logging a sighting = 1 point (once per cat per day). */
+const RANKS=[{min:0,name:"Kitten",icon:"🐱"},{min:5,name:"Soi Scout",icon:"🔎"},{min:15,name:"Alley Cat",icon:"🐈"},
+  {min:30,name:"Street Whisker",icon:"🐾"},{min:60,name:"Cat Whisperer",icon:"🌟"},{min:100,name:"Maew Legend",icon:"👑"}];
+const rankFor=pts=>[...RANKS].reverse().find(r=>pts>=r.min);
+const myPoints=()=>(state.points||{})[me]||0;
+const myRank=()=>state.ranksOn&&me?rankFor(myPoints()):null;
+function rankBadge(uid){ if(!state.ranksOn||!uid) return ""; const r=rankFor((state.points||{})[uid]||0);
+  return `<span class="badge" title="${r.name}">${r.icon} ${r.name}</span>`; }
+function renderChip(){ const b=document.getElementById("rankBtn"); const r=myRank();
+  if(!r){ b.hidden=true; return; } b.hidden=false; b.innerHTML=`${r.icon} <span>${r.name}</span> <b>${myPoints()}</b>`;
+  b.setAttribute("aria-label",`Your rank: ${r.name}, ${myPoints()} points. Open the leaderboard`); }
+function showRanks(){
+  view="ranks"; selected=null; drawMarkers();
+  const pts=myPoints(), r=rankFor(pts), next=RANKS.find(x=>x.min>pts);
+  const pct=next?Math.round((pts-r.min)/(next.min-r.min)*100):100;
+  panel.innerHTML=`
+    <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← All cats</button>
+      <div class="myrank"><span class="big">${r.icon}</span><div><div class="title">${r.name}</div>
+        <div class="muted">${pts} point${pts===1?"":"s"}${next?` · ${next.min-pts} more to ${next.icon} ${next.name}`:" · top rank!"}</div></div></div>
+      <div class="prog"><span style="width:${pct}%"></span></div>
+    </div>
+    <div class="sec"><h3>How to earn points</h3>
+      <ul class="earn"><li><b>+3</b> Add a cat nobody has pinned yet</li><li><b>+1</b> Log a sighting: press "I saw this cat today" (once per cat each day)</li></ul></div>
+    <div class="sec"><h3>Top spotters</h3>
+      <ol class="board">${(state.board||[]).map(x=>{ const xr=rankFor(x.points); return `<li class="${x.is_me?"me":""}">
+        <span class="pl">${x.place}</span><span class="nm">${esc(x.nickname)}${x.is_me?" (you)":""}</span><span class="badge">${xr.icon} ${xr.name}</span><b>${x.points}</b></li>`; }).join("")||'<li class="muted">No spotters yet. Add a cat to be the first!</li>'}</ol>
+    </div>
+    <div class="sec field"><span>Your name on the leaderboard</span>
+      <form class="row" id="nickForm"><input type="text" id="nick" maxlength="20" placeholder="e.g. Soi 11 Spotter" value="${esc(state.nick)}"><button class="btn small">Save</button></form>
+      <span class="hint">Use a nickname, not your full name. Without one, you show as "Anonymous cat fan".</span></div>
+    <div class="sec"><h3>All ranks</h3>
+      <ul class="ladder">${RANKS.map(x=>`<li class="${x===r?"cur":""}"><span>${x.icon} ${x.name}</span><span class="muted">${x.min} points</span></li>`).join("")}</ul></div>`;
+  panel.scrollTop=0;
+  document.getElementById("back").onclick=showList;
+  document.getElementById("nickForm").onsubmit=async e=>{ e.preventDefault();
+    const n=document.getElementById("nick").value.trim(); if(n.length<2){ toast("Nicknames need at least 2 letters"); return; }
+    if(await act(()=>store.nickname(n),"Nickname saved")) showRanks(); };
+}
+document.getElementById("rankBtn").onclick=showRanks;
+
 /* ---------- Reporting ---------- */
 const REASONS={rude:"Rude or hurtful",spam:"Spam or advert",fake:"Not a real cat",duplicate:"Same cat is already on the map",private:"Shows someone's face or private details"};
 const reported=(type,id)=>(state.mine.reported||{})[type+":"+id];
@@ -445,7 +512,7 @@ function openCat(id,fly){
         <div class="row"><input type="text" id="cWho" maxlength="30" placeholder="Your name (optional)"><button class="btn small">Post</button></div>
       </form>
       <ul class="comments">${[...c.comments].filter(m=>!reported("comment",m.id)).sort((a,b)=>b.at-a.at).map(m=>`
-        <li><span class="who">${esc(m.who||"Anonymous")}<span class="when">${ago(m.at)}</span></span><span>${esc(m.t)}</span>
+        <li><span class="who">${esc(m.who||"Anonymous")} ${rankBadge(m.uid)}<span class="when">${ago(m.at)}</span></span><span>${esc(m.t)}</span>
           <div class="cact">${tr(m.t)}${m.id?reportLink("comment",m.id,"Report"):""}</div></li>`).join("") || '<li class="muted">No comments yet. Be the first.</li>'}</ul>
     </div>`;
   panel.scrollTop=0;
@@ -577,9 +644,9 @@ async function start(){
   }catch(e){ console.error(e); }
   try{ await refresh(); }
   catch(e){ console.error(e); panel.innerHTML='<div class="sec"><h2>Couldn\'t load the cats</h2><p class="muted">Check your internet connection and refresh the page.</p></div>'; return; }
-  drawMarkers(); showList();
+  drawMarkers(); showList(); renderChip();
   /* Coming back to the app shows cats other people added meanwhile */
-  window.addEventListener("focus",async()=>{ if(view!=="list") return; try{ await refresh(); showList(); }catch(e){} });
+  window.addEventListener("focus",async()=>{ if(view!=="list") return; try{ await refresh(); showList(); renderChip(); }catch(e){} });
 }
 start();
 </script>
