@@ -157,7 +157,7 @@ textarea{min-height:70px;resize:vertical}
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
 <script>
 /* ---------- Things a cat can look like ---------- */
 const COATS = {
@@ -181,8 +181,8 @@ const FRIENDLY = ["Runs away","Keeps away","Lets you near","Likes a stroke","Lap
 /* ---------- Where the cats are saved ----------
    With these two filled in, everyone shares the same cats (Supabase project URL + publishable key).
    Left empty, cats are saved in this browser only. */
-const SUPABASE_URL = "";
-const SUPABASE_KEY = "";
+const SUPABASE_URL = "https://vqhowbnyyaczubexkbmm.supabase.co";
+const SUPABASE_KEY = "sb_publishable_y2Uw17oesH50tMWYsayHfg_QFcToahs";
 const REMOTE = !!(SUPABASE_URL && SUPABASE_KEY && window.supabase);
 
 const KEY="bkkcats.v1"; /* storage key kept so saved cats survive the rename */
