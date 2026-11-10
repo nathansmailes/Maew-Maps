@@ -2,6 +2,12 @@
 -- Paste all of this into Supabase: SQL Editor -> New query -> Run. Safe to run more than once.
 -- Each person can flag each cat once. Any flag shows a warning on the cat's profile and pin.
 
+-- (Also defined in 04-signin.sql; repeated here so this file works on its own.)
+create or replace function public.is_real_user() returns boolean
+language sql stable as $$
+  select coalesce((auth.jwt() ->> 'is_anonymous')::boolean, true) = false
+$$;
+
 create table if not exists public.warnings (
   cat_id     uuid not null references public.cats(id) on delete cascade,
   user_id    uuid not null default auth.uid(),
