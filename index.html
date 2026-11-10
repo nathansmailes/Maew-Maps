@@ -73,6 +73,8 @@ main{flex:1;display:flex;min-height:0;position:relative}
 .tag{display:inline-block;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:var(--soft);color:var(--accent);font-weight:700;vertical-align:middle}
 
 .fr{font-size:.92rem}
+.locate{width:34px;height:34px;border-radius:4px;border:2px solid rgba(0,0,0,.2);background:#fff;font-size:17px;line-height:1;padding:0;cursor:pointer;background-clip:padding-box}
+.locate.busy{animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.4}}
 .rankchip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 12px;font-weight:700;display:flex;gap:6px;align-items:center;white-space:nowrap}
 .rankchip b{color:var(--accent);font-variant-numeric:tabular-nums}
 .badge{display:inline-block;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--marigold) 22%,var(--panel));white-space:nowrap;vertical-align:middle}
@@ -181,7 +183,7 @@ textarea{min-height:70px;resize:vertical}
 <main>
   <aside id="panel" aria-live="polite"></aside>
   <div id="map" role="application" aria-label="Map of Bangkok"></div>
-  <div class="banner" id="banner" hidden>Tap the map where you saw the cat <button id="cancelPick">Cancel</button></div>
+  <div class="banner" id="banner" hidden>Tap the map where you saw the cat (📍 finds you) <button id="cancelPick">Cancel</button></div>
 </main>
 <div class="toast" id="toast" hidden></div>
 
@@ -339,6 +341,20 @@ const osm=()=>L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZ
   attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
 const sharp=L.tileLayer(`https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,{maxZoom:20,
   attribution:'<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'}).addTo(map);
+/* "Show me where I am": only used on this device to move the map. Your location is never saved or sent to Maew Maps. */
+let meDot=null;
+const LocateCtl=L.Control.extend({options:{position:"topleft"},onAdd(){
+  const b=L.DomUtil.create("button","locate"); b.type="button"; b.title="Show me where I am"; b.setAttribute("aria-label","Show me where I am"); b.textContent="📍";
+  L.DomEvent.disableClickPropagation(b);
+  b.onclick=()=>{ b.classList.add("busy"); map.locate({setView:true,maxZoom:17,enableHighAccuracy:true,timeout:15000}); };
+  return b; }});
+new LocateCtl().addTo(map);
+map.on("locationfound",e=>{ document.querySelector(".locate")?.classList.remove("busy");
+  if(meDot) map.removeLayer(meDot);
+  meDot=L.layerGroup([L.circle(e.latlng,{radius:Math.min(e.accuracy,300),stroke:false,fillColor:"#2a7de1",fillOpacity:.15,interactive:false}),
+    L.circleMarker(e.latlng,{radius:8,color:"#fff",weight:3,fillColor:"#2a7de1",fillOpacity:1,interactive:false})]).addTo(map); });
+map.on("locationerror",()=>{ document.querySelector(".locate")?.classList.remove("busy");
+  toast("Couldn't find your location. Check that location is allowed for this app or browser."); });
 let tileErrors=0;
 sharp.on("tileerror",()=>{ if(++tileErrors===4){ map.removeLayer(sharp); osm().addTo(map); } });
 
