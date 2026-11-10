@@ -296,10 +296,14 @@ async function act(fn,msg){
 
 /* ---------- Map ---------- */
 const map = L.map("map",{zoomControl:true}).setView([13.7465,100.535],13);
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{
-  maxZoom:19,
-  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-}).addTo(map);
+/* Sharp MapTiler map (high-resolution on phone screens). If it ever fails, fall back to the free OpenStreetMap map. */
+const MAPTILER_KEY="zpCPFa06n8j9PjEwI37M";
+const osm=()=>L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
+const sharp=L.tileLayer(`https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,{maxZoom:20,
+  attribution:'<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'}).addTo(map);
+let tileErrors=0;
+sharp.on("tileerror",()=>{ if(++tileErrors===4){ map.removeLayer(sharp); osm().addTo(map); } });
 
 const markers={}; let selected=null, picking=false, draft=null, draftMarker=null;
 function pinIcon(cat,extra=""){
