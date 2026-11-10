@@ -422,12 +422,13 @@ function showSignIn(step){
       <p class="muted" style="margin:0">Anyone can look at the map. To add cats, vote, rate, comment or climb the spotter ranks, sign in with your email. We'll send you a code, so there's no password to remember.</p></div>
     <form class="sec field" id="emailForm"><span>Your email</span>
       <input type="email" id="email" autocomplete="email" required placeholder="you@example.com" value="${esc(signEmail)}" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
-      <button class="btn" id="sendBtn" style="align-self:flex-start">Send me a code</button>
+      <button class="btn" id="sendBtn" style="align-self:flex-start">Email me a sign-in link</button>
       <span class="hint">We only use your email to sign you in. It's never shown to other people.</span></form>` : `
     <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Use a different email</button>
       <h2>Check your email</h2>
-      <p class="muted" style="margin:0">We sent a code to <b>${esc(signEmail)}</b>. It can take a minute, and it may be in your junk folder.</p></div>
-    <form class="sec field" id="codeForm"><span>Code</span>
+      <p class="muted" style="margin:0">We sent an email to <b>${esc(signEmail)}</b>. Tap the link in it and you'll come back here signed in. It can take a minute, and it may be in your junk folder.</p>
+      <button type="button" class="btn small ghost" id="checkBtn" style="align-self:flex-start">I tapped the link on another device</button></div>
+    <form class="sec field" id="codeForm"><span>Got a code instead? Type it here</span>
       <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="font-size:1.4rem;letter-spacing:.2em;max-width:220px">
       <button class="btn" id="verifyBtn" style="align-self:flex-start">Sign in</button></form>`;
   panel.scrollTop=0;
@@ -438,27 +439,34 @@ function showSignIn(step){
       const b=document.getElementById("sendBtn"); b.disabled=true; b.textContent="Sending…";
       try{ await sendCode(signEmail); showSignIn("code"); }
       catch(err){ console.error(err); b.disabled=false; b.textContent="Send me a code";
-        toast(/rate|seconds|too many/i.test(err.message||"")?"Too many codes sent. Wait a minute and try again.":"Couldn't send the code. Check the email address."); } };
+        toast(/rate|seconds|too many/i.test(err.message||"")?"Too many emails sent. Wait a while and try again.":"Couldn't send the email. Check the address."); } };
   } else {
-    document.getElementById("code").focus();
+    document.getElementById("checkBtn").onclick=async()=>{ if(await pickUpSignIn()) signedInNow(); else toast("Not signed in yet. Tap the link in the email first."); };
     document.getElementById("codeForm").onsubmit=async e=>{ e.preventDefault();
       const code=document.getElementById("code").value.replace(/\D/g,""); if(code.length<6){ toast("Type the code from the email"); return; }
       const b=document.getElementById("verifyBtn"); b.disabled=true; b.textContent="Checking…";
-      try{ await verifyCode(code); renderChip(); toast("You're signed in. Welcome!");
-        if(!state.nick) showRanks(); else goBack(); }
+      try{ await verifyCode(code); signedInNow(); }
       catch(err){ console.error(err); b.disabled=false; b.textContent="Sign in"; toast("That code didn't work. Check it, or go back and get a new one."); } };
   }
 }
 function goBack(){ const r=returnTo; returnTo=null;
   if(r&&r.view==="cat"&&r.selected) openCat(r.selected); else if(r&&r.view==="ranks"&&!isGuest) showRanks(); else showList(); }
+function signedInNow(){ renderChip(); toast("You're signed in. Welcome!"); if(!state.nick) showRanks(); else goBack(); }
+const backHere=()=>location.origin+location.pathname;
+/* After the email link is tapped (here or on another device), refresh to see if this guest is now a real account */
+async function pickUpSignIn(){
+  const {data,error}=await sb.auth.refreshSession(); if(error||!data.session) return false;
+  const u=data.session.user; me=u.id; isGuest=!!u.is_anonymous; myEmail=u.email||"";
+  if(!isGuest) await refresh(); return !isGuest;
+}
 async function sendCode(email){
   const {data:{session}}=await sb.auth.getSession();
   if(session&&session.user.is_anonymous){   /* turn this guest into a real account, keeping their cats and points */
-    const {error}=await sb.auth.updateUser({email});
+    const {error}=await sb.auth.updateUser({email},{emailRedirectTo:backHere()});
     if(!error){ signType="email_change"; return; }
     if(!/already|exists|registered/i.test((error.code||"")+" "+(error.message||""))) throw error;
   }
-  const {error}=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true}});   /* returning user, or a new one */
+  const {error}=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true,emailRedirectTo:backHere()}});   /* returning user, or a new one */
   if(error) throw error; signType="email";
 }
 async function verifyCode(code){
@@ -709,15 +717,21 @@ function checkDupes(){
 async function start(){
   if(!REMOTE){ drawMarkers(); showList(); return; }
   panel.innerHTML='<div class="sec"><h2>Loading cats…</h2></div>';
-  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{flowType:"implicit",detectSessionInUrl:true,persistSession:true}});
   try{ /* Everyone gets a quiet anonymous sign-in, so each phone has one vote per cat */
     let {data:{session}}=await sb.auth.getSession();
     if(!session){ const r=await sb.auth.signInAnonymously(); if(r.error) throw r.error; session=r.data.session; }
     me=session.user.id; isGuest=!!session.user.is_anonymous; myEmail=session.user.email||"";
+    if(isGuest && location.hash.length>1) await pickUpSignIn();   /* just came back from an email link */
   }catch(e){ console.error(e); }
+  const cameBack=!isGuest && /access_token|message=/.test(location.hash);
+  if(location.hash.length>1) history.replaceState(null,"",backHere());
   try{ await refresh(); }
   catch(e){ console.error(e); panel.innerHTML='<div class="sec"><h2>Couldn\'t load the cats</h2><p class="muted">Check your internet connection and refresh the page.</p></div>'; return; }
   drawMarkers(); showList(); renderChip();
+  if(cameBack){ toast("You're signed in. Welcome!"); if(!state.nick) showRanks(); }
+  sb.auth.onAuthStateChange((ev,sess)=>{ if(!sess) return; const u=sess.user;
+    if(u.id!==me||(isGuest&&!u.is_anonymous)){ me=u.id; isGuest=!!u.is_anonymous; myEmail=u.email||""; setTimeout(()=>refresh().then(()=>{ renderChip(); if(view==="list") showList(); }).catch(()=>{}),0); } });
   /* Coming back to the app shows cats other people added meanwhile */
   window.addEventListener("focus",async()=>{ if(view!=="list") return; try{ await refresh(); showList(); renderChip(); }catch(e){} });
 }
