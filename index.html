@@ -39,7 +39,7 @@ button{cursor:pointer}
 :focus-visible{outline:3px solid var(--marigold);outline-offset:2px}
 
 header{display:flex;align-items:center;gap:12px;padding:10px max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);z-index:1000}
-.brand{font-family:var(--display);font-weight:800;font-size:1.3rem;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;margin:0}
+.brand{cursor:pointer;font-family:var(--display);font-weight:800;font-size:1.3rem;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;margin:0}
 .brand small{font-family:var(--body);font-weight:400;font-size:.85rem;color:var(--muted)}
 header .spacer{flex:1}
 .btn{white-space:nowrap;border:0;border-radius:999px;padding:9px 16px;font-weight:700;background:var(--accent);color:var(--accent-ink)}
@@ -178,7 +178,7 @@ textarea{min-height:70px;resize:vertical}
 </head>
 <body>
 <header>
-  <h1 class="brand">🐈 Maew Maps <small>Neighbourhood cats, spotted by you</small></h1>
+  <h1 class="brand" id="home" role="link" tabindex="0" title="Back to all cats">🐈 Maew Maps <small>Neighbourhood cats, spotted by you</small></h1>
   <span class="spacer"></span>
   <button class="rankchip" id="rankBtn" hidden></button>
   <button class="btn ghost" id="signInBtn" hidden>Sign in</button>
@@ -456,6 +456,10 @@ function showRanks(){
 }
 document.getElementById("rankBtn").onclick=showRanks;
 document.getElementById("signInBtn").onclick=()=>showSignIn();
+/* Tapping the "Maew Maps" title always goes back to the main list (and cancels adding a cat) */
+const goHome=()=>{ if(picking||draft) cancelAdd(); else showList(); panel.scrollTop=0; };
+document.getElementById("home").onclick=goHome;
+document.getElementById("home").onkeydown=e=>{ if(e.key==="Enter") goHome(); };
 
 /* ---------- Sign in with an email code ----------
    Guests can look around. Joining in (adding, voting, commenting...) needs an account.
@@ -703,6 +707,7 @@ function showAddForm(){
   view="add";
   panel.innerHTML=`
     <div class="sec">
+      <button type="button" class="btn small ghost" id="cancelTop" style="align-self:flex-start">← Back, don't add a cat</button>
       <h2>New cat</h2>
       <p class="muted" style="margin:0">You can drag the dashed pin if it's in the wrong spot. Fill in what the cat looks like, and we'll check whether someone has already added it.</p>
     </div>
@@ -734,6 +739,7 @@ function showAddForm(){
   });
   document.getElementById("ph").onchange=async e=>{ const x=e.target.files[0]; draft.photo=x?await shrink(x):null; };
   document.getElementById("cancelNew").onclick=cancelAdd;
+  document.getElementById("cancelTop").onclick=cancelAdd;
   f.onsubmit=async e=>{ e.preventDefault();
     const desc=document.getElementById("desc").value.trim();
     if(!draft.coat){ toast("Pick the cat's main colour first"); return; }
