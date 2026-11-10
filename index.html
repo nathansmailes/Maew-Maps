@@ -164,7 +164,8 @@ textarea{min-height:70px;resize:vertical}
 @media (max-width:720px){
   main{flex-direction:column-reverse}
   .banner{bottom:auto;top:12px;left:auto;right:12px;transform:none;width:auto;max-width:calc(100% - 70px)}
-  #panel{width:100%;height:55%;border-right:0;border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(0,0,0,.12)}
+  body.detail #panel{height:78%}
+  #panel{transition:height .25s ease;width:100%;height:55%;border-right:0;border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(0,0,0,.12)}
   .brand small{display:none}
   .brand{font-size:1.1rem;white-space:nowrap}
   header .btn,header .rankchip{padding:8px 12px;font-size:.9rem}
@@ -413,7 +414,7 @@ function renderChip(){ const b=document.getElementById("rankBtn"); const r=myRan
   if(!r||isGuest){ b.hidden=true; return; } b.hidden=false; b.innerHTML=`${r.icon} <span>${r.name}</span> <b>${myPoints()}</b>`;
   b.setAttribute("aria-label",`Your rank: ${r.name}, ${myPoints()} points. Open the leaderboard`); }
 function showRanks(){
-  view="ranks"; selected=null; drawMarkers();
+  setMode("ranks"); selected=null; drawMarkers();
   const pts=myPoints(), r=rankFor(pts), next=RANKS.find(x=>x.min>pts);
   const pct=next?Math.round((pts-r.min)/(next.min-r.min)*100):100;
   panel.innerHTML=`
@@ -468,7 +469,7 @@ let isGuest=true, myEmail="", signEmail="", signType="", returnTo=null;
 function needSignIn(){ if(!REMOTE||!isGuest) return false; showSignIn(); return true; }
 function showSignIn(step){
   if(view!=="signin") returnTo={view,selected};
-  view="signin";
+  setMode("signin");
   panel.innerHTML= step!=="code" ? `
     <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Back</button>
       <h2>Sign in to join in</h2>
@@ -562,8 +563,15 @@ const panel=document.getElementById("panel");
 /* ---------- List view ---------- */
 let query="";
 let view="list";
+/* On phones, give the panel more room (and the map less) while reading a cat or filling in a form */
+function setMode(v){ view=v; const big=v!=="list";
+  if(document.body.classList.contains("detail")===big) return;
+  document.body.classList.toggle("detail",big);
+  setTimeout(()=>{ map.invalidateSize();
+    const t=draftMarker?draftMarker.getLatLng():(selected&&find(selected)?[find(selected).lat,find(selected).lng]:null);
+    if(t) map.panTo(t,{animate:false}); },260); }
 function showList(){
-  view="list"; selected=null; drawMarkers();
+  setMode("list"); selected=null; drawMarkers();
   const q=query.toLowerCase();
   const cats=state.cats.filter(c=>!q || [topName(c),c.area,c.description,COATS[c.coat]?.label,...c.names.map(n=>n.n)].join(" ").toLowerCase().includes(q))
     .sort((a,b)=>b.at-a.at);
@@ -603,7 +611,7 @@ function showList(){
 /* ---------- Cat profile ---------- */
 function openCat(id,fly){
   const c=find(id); if(!c){ showList(); return; }
-  view="cat"; selected=id; drawMarkers();
+  setMode("cat"); selected=id; drawMarkers();
   if(fly) map.flyTo([c.lat,c.lng],Math.max(map.getZoom(),16),{duration:.8});
   const total=c.names.reduce((s,n)=>s+n.v,0)||1;
   const myVote=state.mine.votes[id], myRate=state.mine.rates[id];
@@ -704,7 +712,7 @@ map.on("click",e=>{ if(!picking) return; picking=false; banner.hidden=true; docu
 });
 
 function showAddForm(){
-  view="add";
+  setMode("add");
   panel.innerHTML=`
     <div class="sec">
       <button type="button" class="btn small ghost" id="cancelTop" style="align-self:flex-start">← Back, don't add a cat</button>
