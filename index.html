@@ -35,7 +35,7 @@ header{display:flex;align-items:center;gap:12px;padding:10px max(16px,env(safe-a
 .brand{font-family:var(--display);font-weight:800;font-size:1.3rem;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;margin:0}
 .brand small{font-family:var(--body);font-weight:400;font-size:.85rem;color:var(--muted)}
 header .spacer{flex:1}
-.btn{border:0;border-radius:999px;padding:9px 16px;font-weight:700;background:var(--accent);color:var(--accent-ink)}
+.btn{white-space:nowrap;border:0;border-radius:999px;padding:9px 16px;font-weight:700;background:var(--accent);color:var(--accent-ink)}
 .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
 .btn.small{padding:6px 12px;font-size:.88rem}
 .btn:disabled{opacity:.5;cursor:not-allowed}
@@ -153,6 +153,8 @@ textarea{min-height:70px;resize:vertical}
   .banner{bottom:auto;top:12px;left:auto;right:12px;transform:none;width:auto;max-width:calc(100% - 70px)}
   #panel{width:100%;height:55%;border-right:0;border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(0,0,0,.12)}
   .brand small{display:none}
+  .brand{font-size:1.1rem;white-space:nowrap}
+  header .btn,header .rankchip{padding:8px 12px;font-size:.9rem}
   .rankchip span{display:none}
   header{gap:8px}
   .hero{height:150px}
@@ -166,6 +168,7 @@ textarea{min-height:70px;resize:vertical}
   <h1 class="brand">🐈 Maew Maps <small>Neighbourhood cats, spotted by you</small></h1>
   <span class="spacer"></span>
   <button class="rankchip" id="rankBtn" hidden></button>
+  <button class="btn ghost" id="signInBtn" hidden>Sign in</button>
   <button class="btn" id="addBtn">+ Add a cat</button>
 </header>
 <main>
@@ -310,6 +313,7 @@ async function refresh(){
 /* Run a save, show a message, and say clearly if it didn't work */
 let busy=false;
 async function act(fn,msg){
+  if(needSignIn()) return false;
   if(busy) return false; busy=true;
   const before=myRank();
   try{ await fn(); const after=myRank();
@@ -369,14 +373,16 @@ const myRank=()=>state.ranksOn&&me?rankFor(myPoints()):null;
 function rankBadge(uid){ if(!state.ranksOn||!uid) return ""; const r=rankFor((state.points||{})[uid]||0);
   return `<span class="badge" title="${r.name}">${r.icon} ${r.name}</span>`; }
 function renderChip(){ const b=document.getElementById("rankBtn"); const r=myRank();
-  if(!r){ b.hidden=true; return; } b.hidden=false; b.innerHTML=`${r.icon} <span>${r.name}</span> <b>${myPoints()}</b>`;
+  document.getElementById("signInBtn").hidden=!(REMOTE&&isGuest);
+  if(!r||isGuest){ b.hidden=true; return; } b.hidden=false; b.innerHTML=`${r.icon} <span>${r.name}</span> <b>${myPoints()}</b>`;
   b.setAttribute("aria-label",`Your rank: ${r.name}, ${myPoints()} points. Open the leaderboard`); }
 function showRanks(){
   view="ranks"; selected=null; drawMarkers();
   const pts=myPoints(), r=rankFor(pts), next=RANKS.find(x=>x.min>pts);
   const pct=next?Math.round((pts-r.min)/(next.min-r.min)*100):100;
   panel.innerHTML=`
-    <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← All cats</button>
+    <div class="sec"><div class="row" style="justify-content:space-between;align-items:center"><button class="btn small ghost" id="back">← All cats</button>
+      <span class="hint">${esc(myEmail)} · <button type="button" class="linkish" id="signOut" style="color:var(--muted)">Sign out</button></span></div>
       <div class="myrank"><span class="big">${r.icon}</span><div><div class="title">${r.name}</div>
         <div class="muted">${pts} point${pts===1?"":"s"}${next?` · ${next.min-pts} more to ${next.icon} ${next.name}`:" · top rank!"}</div></div></div>
       <div class="prog"><span style="width:${pct}%"></span></div>
@@ -394,11 +400,78 @@ function showRanks(){
       <ul class="ladder">${RANKS.map(x=>`<li class="${x===r?"cur":""}"><span>${x.icon} ${x.name}</span><span class="muted">${x.min} points</span></li>`).join("")}</ul></div>`;
   panel.scrollTop=0;
   document.getElementById("back").onclick=showList;
+  document.getElementById("signOut").onclick=signOut;
   document.getElementById("nickForm").onsubmit=async e=>{ e.preventDefault();
     const n=document.getElementById("nick").value.trim(); if(n.length<2){ toast("Nicknames need at least 2 letters"); return; }
     if(await act(()=>store.nickname(n),"Nickname saved")) showRanks(); };
 }
 document.getElementById("rankBtn").onclick=showRanks;
+document.getElementById("signInBtn").onclick=()=>showSignIn();
+
+/* ---------- Sign in with an email code ----------
+   Guests can look around. Joining in (adding, voting, commenting...) needs an account.
+   If a guest signs up, everything they already added stays theirs. */
+let isGuest=true, myEmail="", signEmail="", signType="", returnTo=null;
+function needSignIn(){ if(!REMOTE||!isGuest) return false; showSignIn(); return true; }
+function showSignIn(step){
+  if(view!=="signin") returnTo={view,selected};
+  view="signin";
+  panel.innerHTML= step!=="code" ? `
+    <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Back</button>
+      <h2>Sign in to join in</h2>
+      <p class="muted" style="margin:0">Anyone can look at the map. To add cats, vote, rate, comment or climb the spotter ranks, sign in with your email. We'll send you a code, so there's no password to remember.</p></div>
+    <form class="sec field" id="emailForm"><span>Your email</span>
+      <input type="email" id="email" autocomplete="email" required placeholder="you@example.com" value="${esc(signEmail)}" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
+      <button class="btn" id="sendBtn" style="align-self:flex-start">Send me a code</button>
+      <span class="hint">We only use your email to sign you in. It's never shown to other people.</span></form>` : `
+    <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Use a different email</button>
+      <h2>Check your email</h2>
+      <p class="muted" style="margin:0">We sent a code to <b>${esc(signEmail)}</b>. It can take a minute, and it may be in your junk folder.</p></div>
+    <form class="sec field" id="codeForm"><span>Code</span>
+      <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="font-size:1.4rem;letter-spacing:.2em;max-width:220px">
+      <button class="btn" id="verifyBtn" style="align-self:flex-start">Sign in</button></form>`;
+  panel.scrollTop=0;
+  document.getElementById("back").onclick=()=> step==="code" ? showSignIn() : goBack();
+  if(step!=="code"){
+    document.getElementById("emailForm").onsubmit=async e=>{ e.preventDefault();
+      signEmail=document.getElementById("email").value.trim().toLowerCase();
+      const b=document.getElementById("sendBtn"); b.disabled=true; b.textContent="Sending…";
+      try{ await sendCode(signEmail); showSignIn("code"); }
+      catch(err){ console.error(err); b.disabled=false; b.textContent="Send me a code";
+        toast(/rate|seconds|too many/i.test(err.message||"")?"Too many codes sent. Wait a minute and try again.":"Couldn't send the code. Check the email address."); } };
+  } else {
+    document.getElementById("code").focus();
+    document.getElementById("codeForm").onsubmit=async e=>{ e.preventDefault();
+      const code=document.getElementById("code").value.replace(/\D/g,""); if(code.length<6){ toast("Type the code from the email"); return; }
+      const b=document.getElementById("verifyBtn"); b.disabled=true; b.textContent="Checking…";
+      try{ await verifyCode(code); renderChip(); toast("You're signed in. Welcome!");
+        if(!state.nick) showRanks(); else goBack(); }
+      catch(err){ console.error(err); b.disabled=false; b.textContent="Sign in"; toast("That code didn't work. Check it, or go back and get a new one."); } };
+  }
+}
+function goBack(){ const r=returnTo; returnTo=null;
+  if(r&&r.view==="cat"&&r.selected) openCat(r.selected); else if(r&&r.view==="ranks"&&!isGuest) showRanks(); else showList(); }
+async function sendCode(email){
+  const {data:{session}}=await sb.auth.getSession();
+  if(session&&session.user.is_anonymous){   /* turn this guest into a real account, keeping their cats and points */
+    const {error}=await sb.auth.updateUser({email});
+    if(!error){ signType="email_change"; return; }
+    if(!/already|exists|registered/i.test((error.code||"")+" "+(error.message||""))) throw error;
+  }
+  const {error}=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true}});   /* returning user, or a new one */
+  if(error) throw error; signType="email";
+}
+async function verifyCode(code){
+  const {data,error}=await sb.auth.verifyOtp({email:signEmail,token:code,type:signType});
+  if(error) throw error;
+  me=data.user.id; isGuest=!!data.user.is_anonymous; myEmail=data.user.email||signEmail;
+  await refresh();
+}
+async function signOut(){
+  await sb.auth.signOut(); isGuest=true; myEmail="";
+  const r=await sb.auth.signInAnonymously(); if(!r.error){ me=r.data.session.user.id; }
+  await refresh(); renderChip(); showList(); toast("Signed out");
+}
 
 /* ---------- Reporting ---------- */
 const REASONS={rude:"Rude or hurtful",spam:"Spam or advert",fake:"Not a real cat",duplicate:"Same cat is already on the map",private:"Shows someone's face or private details"};
@@ -552,7 +625,7 @@ function shrink(file){ return new Promise(res=>{ const img=new Image(); img.onlo
 const banner=document.getElementById("banner");
 document.getElementById("addBtn").onclick=startPick;
 document.getElementById("cancelPick").onclick=cancelAdd;
-function startPick(){ picking=true; banner.hidden=false; document.getElementById("map").style.cursor="crosshair"; }
+function startPick(){ if(needSignIn()) return; picking=true; banner.hidden=false; document.getElementById("map").style.cursor="crosshair"; }
 function cancelAdd(){ picking=false; banner.hidden=true; document.getElementById("map").style.cursor="";
   if(draftMarker){ map.removeLayer(draftMarker); draftMarker=null; } draft=null; showList(); }
 map.on("click",e=>{ if(!picking) return; picking=false; banner.hidden=true; document.getElementById("map").style.cursor="";
@@ -640,7 +713,7 @@ async function start(){
   try{ /* Everyone gets a quiet anonymous sign-in, so each phone has one vote per cat */
     let {data:{session}}=await sb.auth.getSession();
     if(!session){ const r=await sb.auth.signInAnonymously(); if(r.error) throw r.error; session=r.data.session; }
-    me=session.user.id;
+    me=session.user.id; isGuest=!!session.user.is_anonymous; myEmail=session.user.email||"";
   }catch(e){ console.error(e); }
   try{ await refresh(); }
   catch(e){ console.error(e); panel.innerHTML='<div class="sec"><h2>Couldn\'t load the cats</h2><p class="muted">Check your internet connection and refresh the page.</p></div>'; return; }
