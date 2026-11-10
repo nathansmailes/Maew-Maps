@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Maew Maps</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Thai:wght@400;700&display=swap">
+<style>
+/* Layout: full-screen map with a "place card" panel on the left (bottom sheet on phones), like a maps app */
+:root{
+  --bg:#f6f7f4; --panel:#ffffff; --ink:#1d2321; --muted:#5e6964; --line:#dfe3df;
+  --accent:#0f6b5c;      /* temple-roof teal */
+  --accent-ink:#ffffff;
+  --marigold:#f2a516;    /* marigold garland */
+  --soft:#eaf3f0;
+  --danger:#b3261e;
+  --display:"Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body:"Atkinson Hyperlegible", "Noto Sans Thai", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#121614; --panel:#1b211e; --ink:#e8ece9; --muted:#9aa5a0; --line:#2e3632;
+    --accent:#4fc2a8; --accent-ink:#0b1311; --marigold:#f5b83d; --soft:#22302b; --danger:#ff8a80; color-scheme:dark }
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);display:flex;flex-direction:column;overflow:hidden}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--marigold);outline-offset:2px}
+
+header{display:flex;align-items:center;gap:12px;padding:10px max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);z-index:1000}
+.brand{font-family:var(--display);font-weight:800;font-size:1.3rem;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;margin:0}
+.brand small{font-family:var(--body);font-weight:400;font-size:.85rem;color:var(--muted)}
+header .spacer{flex:1}
+.btn{border:0;border-radius:999px;padding:9px 16px;font-weight:700;background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.small{padding:6px 12px;font-size:.88rem}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+main{flex:1;display:flex;min-height:0;position:relative}
+#panel{width:400px;max-width:100%;background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;z-index:500;display:flex;flex-direction:column}
+#map{flex:1;min-width:0}
+.leaflet-container{background:var(--bg);font:inherit}
+
+.banner{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;z-index:900;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.25);display:flex;gap:10px;align-items:center;white-space:nowrap}
+.banner button{background:transparent;border:1px solid currentColor;color:inherit;border-radius:999px;padding:2px 10px}
+
+.sec{padding:16px 18px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.sec h2,.sec h3{margin:0;font-family:var(--display);font-weight:600}
+.sec h3{font-size:1rem}
+.muted{color:var(--muted)}
+.intro p{margin:0}
+
+.search{width:100%;padding:9px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg)}
+
+.catlist{list-style:none;margin:0;padding:0}
+.catrow{display:flex;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);cursor:pointer;align-items:center}
+.catrow:hover{background:var(--soft)}
+.thumb{width:56px;height:56px;border-radius:12px;flex:none;background-size:cover;background-position:center;display:grid;place-items:center;font-size:1.6rem}
+.catrow .info{min-width:0;flex:1}
+.catrow .nm{font-weight:700;font-size:1.02rem}
+.catrow .sub{color:var(--muted);font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tag{display:inline-block;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:var(--soft);color:var(--accent);font-weight:700;vertical-align:middle}
+
+.fr{font-size:.92rem}
+.tr{font-size:.8rem;color:var(--accent);text-decoration:none;align-self:flex-start;margin-top:2px}
+.tr:hover{text-decoration:underline}
+.fading{border-left:4px solid var(--marigold);background:color-mix(in srgb,var(--marigold) 12%,var(--panel));padding:8px 12px;border-radius:6px;font-size:.88rem}
+.meter{display:flex;flex-direction:column;gap:2px;max-width:280px}
+.meter .track{height:8px;border-radius:999px;background:linear-gradient(90deg,var(--soft),var(--marigold));position:relative}
+.meter .track i{position:absolute;top:50%;width:16px;height:16px;border-radius:50%;background:var(--panel);border:3px solid var(--accent);transform:translate(-50%,-50%)}
+.meter .ends{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted)}
+
+/* Profile card */
+.hero{height:200px;background-size:cover;background-position:center;display:grid;place-items:center;font-size:4rem;position:relative;flex:none}
+.nophoto{position:absolute;bottom:10px;right:10px;background:var(--panel);color:var(--muted);font-size:.8rem;padding:3px 10px;border-radius:999px}
+.hero .back{font-size:.9rem;position:absolute;top:10px;left:10px;background:var(--panel);color:var(--ink);border:0;border-radius:999px;padding:6px 12px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+.title{font-family:var(--display);font-weight:800;font-size:1.7rem;line-height:1.1;margin:0;text-wrap:balance}
+.ratingline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:.88rem;background:var(--panel)}
+label.chip{cursor:pointer;user-select:none}
+label.chip input{position:absolute;opacity:0;pointer-events:none}
+label.chip:has(input:checked){background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+label.chip:has(input:focus-visible){outline:3px solid var(--marigold)}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px;border:1px solid rgba(0,0,0,.2)}
+
+.names{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.names li{display:flex;align-items:center;gap:10px}
+.bar{flex:1;height:30px;border-radius:8px;background:var(--soft);position:relative;overflow:hidden}
+.bar span{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+.bar b{position:relative;padding:0 10px;line-height:30px;font-weight:700}
+.bar i{position:absolute;right:10px;line-height:30px;font-style:normal;color:var(--muted);font-variant-numeric:tabular-nums;font-size:.88rem}
+.vote{border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:999px;padding:4px 12px;font-weight:700;font-size:.85rem;min-width:72px}
+.vote.on{background:var(--accent);color:var(--accent-ink)}
+
+.friendly{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.friendly button{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:8px 4px;font-size:.75rem;line-height:1.2;display:flex;flex-direction:column;align-items:center;gap:2px}
+.friendly button b{font-size:1.1rem}
+.friendly button.on{border-color:var(--marigold);background:color-mix(in srgb,var(--marigold) 20%,var(--panel))}
+
+.row{display:flex;gap:8px}
+.row > *{min-width:0}
+input[type=text],textarea{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+textarea{min-height:70px;resize:vertical}
+.field{display:flex;flex-direction:column;gap:6px}
+.field > span{font-weight:700}
+.hint{font-size:.85rem;color:var(--muted)}
+
+.comments{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.comments li{display:flex;flex-direction:column}
+.comments .who{font-weight:700;font-size:.9rem}
+.comments .when{color:var(--muted);font-size:.8rem;font-weight:400;margin-left:6px}
+
+.dupes{border:2px solid var(--marigold);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;background:color-mix(in srgb,var(--marigold) 8%,var(--panel))}
+.dupes h3{font-size:1rem}
+.dupe{display:flex;gap:10px;align-items:center}
+.dupe .thumb{width:44px;height:44px;font-size:1.2rem}
+.dupe .info{flex:1;min-width:0;font-size:.88rem}
+.ok{border:2px solid var(--line);border-radius:12px;padding:10px 12px;font-size:.9rem;color:var(--muted)}
+
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;z-index:2000;font-weight:700}
+.foot{padding:16px 18px;font-size:.82rem;color:var(--muted);margin-top:auto;display:flex;flex-direction:column;gap:8px}
+.linkish{background:none;border:0;padding:0;color:var(--danger);text-decoration:underline;font-size:.82rem;align-self:flex-start}
+
+/* Map pins */
+.pin{width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.4);display:grid;place-items:center}
+.pin span{transform:rotate(45deg);font-size:15px}
+.pin.sel{outline:3px solid var(--marigold)}
+.pin.new{border-style:dashed}
+
+@media (max-width:720px){
+  main{flex-direction:column-reverse}
+  .banner{bottom:auto;top:12px;left:auto;right:12px;transform:none;width:auto;max-width:calc(100% - 70px)}
+  #panel{width:100%;height:55%;border-right:0;border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(0,0,0,.12)}
+  .brand small{display:none}
+  .hero{height:150px}
+  .banner{white-space:normal;justify-content:space-between;border-radius:14px}
+}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important} }
+</style>
+</head>
+<body>
+<header>
+  <h1 class="brand">🐈 Maew Maps <small>Neighbourhood cats, spotted by you</small></h1>
+  <span class="spacer"></span>
+  <button class="btn" id="addBtn">+ Add a cat</button>
+</header>
+<main>
+  <aside id="panel" aria-live="polite"></aside>
+  <div id="map" role="application" aria-label="Map of Bangkok"></div>
+  <div class="banner" id="banner" hidden>Tap the map where you saw the cat <button id="cancelPick">Cancel</button></div>
+</main>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* ---------- Things a cat can look like ---------- */
+const COATS = {
+  ginger:   {label:"Ginger / orange", css:"#e8892c"},
+  black:    {label:"Black",           css:"#222"},
+  white:    {label:"White",           css:"#f4f4f2"},
+  grey:     {label:"Grey",            css:"#8a9196"},
+  tabby:    {label:"Brown tabby",     css:"repeating-linear-gradient(45deg,#8a6a45 0 5px,#4b3826 5px 9px)"},
+  blackwhite:{label:"Black & white",  css:"linear-gradient(90deg,#222 50%,#f4f4f2 50%)"},
+  calico:   {label:"Calico (3 colours)", css:"conic-gradient(#e8892c 0 33%,#222 0 66%,#f4f4f2 0)"},
+  tortie:   {label:"Tortoiseshell",   css:"conic-gradient(#222 0 50%,#b5651d 0 75%,#222 0)"},
+  pointed:  {label:"Siamese-style (dark face)", css:"radial-gradient(circle,#6b4a32 30%,#efe3cf 32%)"},
+  cream:    {label:"Cream",           css:"#ecd7b0"}
+};
+const FEATURES = {
+  kinked:"Kinked or bobbed tail", eartip:"Clipped ear (neutered)", collar:"Wears a collar",
+  oneeye:"One eye", limp:"Limps", fluffy:"Long fur", kitten:"Kitten", oddeyes:"Odd-coloured eyes"
+};
+const FRIENDLY = ["Runs away","Keeps away","Lets you near","Likes a stroke","Lap cat"];
+
+/* ---------- Saving in this browser ---------- */
+const KEY="bkkcats.v1"; /* storage key kept so saved cats survive the rename */
+function load(){ try{ const s=JSON.parse(localStorage.getItem(KEY)); if(s&&s.cats) return s; }catch(e){} return null; }
+function save(){ try{ localStorage.setItem(KEY,JSON.stringify(state)); }catch(e){ toast("Couldn't save. The photo may be too big."); } }
+const ago = d => { const m=Math.round((Date.now()-d)/60000); if(m<1)return"just now"; if(m<60)return m+" min ago"; const h=Math.round(m/60); if(h<24)return h+" h ago"; const dd=Math.round(h/24); if(dd===1)return"yesterday"; if(dd<60)return dd+" days ago"; return Math.round(dd/30.4)+" months ago"; };
+const uid = () => Math.random().toString(36).slice(2,10);
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const DAY=86400000, now=Date.now();
+
+function examples(){ return [
+  {id:"ex1",example:true,lat:13.7307,lng:100.5418,area:"Lumpini Park, near the boat lake",coat:"ginger",features:["kinked","eartip"],
+   description:"Big chunky ginger boy with a kinked tail. Sleeps on the bench by the paddle boats most afternoons.",
+   names:[{n:"Mango",v:7},{n:"Khao Pad",v:4},{n:"Tiger",v:1}],ratings:[5,4,5,4,4,5],sightings:12,photo:null,
+   comments:[{who:"น้องฟ้า",t:"น้องแมวเชื่องมาก ชอบนอนบนม้านั่งตอนบ่าย ใครผ่านไปก็มาขอลูบหัว",at:now-1*DAY},{who:"Ploy",t:"Came straight over and sat on my bag!",at:now-2*DAY},{who:"Mr S",t:"Watch out for the monitor lizards near him, he doesn't care.",at:now-5*DAY}],at:now-20*DAY},
+  {id:"ex2",example:true,lat:13.7212,lng:100.5697,area:"Sukhumvit Soi 24, outside the 7-Eleven",coat:"tortie",features:["eartip"],
+   description:"Small tortoiseshell girl, orange patch on her nose. Waits by the 7-Eleven door at night.",
+   names:[{n:"Nam Phrik",v:5},{n:"Patches",v:3}],ratings:[2,3,2],sightings:6,photo:null,
+   comments:[{who:"Anon",t:"Shy at first but takes treats.",at:now-1*DAY}],at:now-9*DAY},
+  {id:"ex3",example:true,lat:13.7398,lng:100.5103,area:"Yaowarat Road, by the gold shops",coat:"black",features:["oneeye"],
+   description:"Thin black cat with one eye. Usually under the noodle stall's table after 6pm.",
+   names:[{n:"Captain",v:6},{n:"Mok",v:2}],ratings:[3,3,4],sightings:4,photo:null,comments:[],at:now-400*DAY,lastSeen:now-320*DAY},
+  {id:"ex4",example:true,lat:13.7797,lng:100.5446,area:"Ari Soi 1, coffee shop steps",coat:"pointed",features:["collar","oddeyes"],
+   description:"Siamese-looking cat with a red collar and one blue, one green eye. Probably someone's pet who wanders.",
+   names:[{n:"Wichien",v:4},{n:"Latte",v:4}],ratings:[5,5,4],sightings:8,photo:null,
+   comments:[{who:"Ben",t:"The barista says she belongs to the noodle shop owner.",at:now-4*DAY}],at:now-14*DAY}
+];}
+let state = load() || {cats:examples(), mine:{votes:{},rates:{}}};
+/* Cats nobody has seen for a year drop off the map */
+const YEAR=365*DAY, FADING=270*DAY;
+const lastSeen = c => c.lastSeen || c.at;
+const before=state.cats.length;
+state.cats=state.cats.filter(c=>Date.now()-lastSeen(c)<YEAR);
+if(state.cats.length<before) save();
+
+/* ---------- Map ---------- */
+const map = L.map("map",{zoomControl:true}).setView([13.7465,100.535],13);
+L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",{
+  maxZoom:20, subdomains:"abcd",
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+}).addTo(map);
+
+const markers={}; let selected=null, picking=false, draft=null, draftMarker=null;
+function pinIcon(cat,extra=""){
+  const c=COATS[cat.coat]||{css:"#999"};
+  return L.divIcon({className:"",iconSize:[34,34],iconAnchor:[17,34],popupAnchor:[0,-30],
+    html:`<div class="pin ${extra}" style="background:${c.css};${cat.at&&Date.now()-lastSeen(cat)>FADING?"opacity:.45":""}"><span>🐾</span></div>`});
+}
+function drawMarkers(){
+  for(const id in markers){ map.removeLayer(markers[id]); delete markers[id]; }
+  state.cats.forEach(cat=>{
+    const m=L.marker([cat.lat,cat.lng],{icon:pinIcon(cat,cat.id===selected?"sel":""),title:topName(cat),riseOnHover:true})
+      .addTo(map).on("click",()=>openCat(cat.id));
+    m.bindTooltip(esc(topName(cat)),{direction:"top",offset:[0,-32]});
+    markers[cat.id]=m;
+  });
+}
+
+/* ---------- Helpers ---------- */
+const topName = c => { const s=[...c.names].sort((a,b)=>b.v-a.v); return s[0]?s[0].n:"Unnamed cat"; };
+const avg = a => a.length? a.reduce((x,y)=>x+y,0)/a.length : 0;
+function friendLabel(c){ return c.ratings.length? FRIENDLY[Math.round(avg(c.ratings))-1] : "Not rated yet"; }
+function meter(c){ const pct=c.ratings.length? (avg(c.ratings)-1)/4*100 : null;
+  return `<div class="meter" role="img" aria-label="Friendliness: ${friendLabel(c)}"><div class="track">${pct===null?"":`<i style="left:${pct}%"></i>`}</div><div class="ends"><span>Shy</span><span>Cuddly</span></div></div>`; }
+function thumbStyle(c){ return c.photo? `background-image:url(${c.photo})` : `background:${(COATS[c.coat]||{}).css||"#ccc"}`; }
+function distM(a,b){ const R=6371000,toR=Math.PI/180; const dLat=(b.lat-a.lat)*toR,dLng=(b.lng-a.lng)*toR;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
+/* Translate: Thai text gets "Translate to English", English gets "แปลเป็นภาษาไทย". Opens Google Translate in a new tab. */
+function tr(text){ const th=/[\u0E00-\u0E7F]/.test(text);
+  return `<a class="tr" target="_blank" rel="noopener" href="https://translate.google.com/?sl=auto&tl=${th?"en":"th"}&op=translate&text=${encodeURIComponent(text)}">${th?"🌐 Translate to English":"🌐 แปลเป็นภาษาไทย"}</a>`; }
+const fmtDist = m => m<1000? Math.round(m/10)*10+" m" : (m/1000).toFixed(1)+" km";
+function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>t.hidden=true,2600); }
+const panel=document.getElementById("panel");
+
+/* ---------- List view ---------- */
+let query="";
+function showList(){
+  selected=null; drawMarkers();
+  const q=query.toLowerCase();
+  const cats=state.cats.filter(c=>!q || [topName(c),c.area,c.description,COATS[c.coat]?.label,...c.names.map(n=>n.n)].join(" ").toLowerCase().includes(q))
+    .sort((a,b)=>b.at-a.at);
+  panel.innerHTML=`
+    <div class="sec intro">
+      <h2>Cats around Bangkok</h2>
+      <p class="muted">Tap a pin to see a cat's profile. Vote on its name, rate how friendly it is and leave a comment. Spotted a new one? Press <b>+ Add a cat</b>.</p>
+      <input class="search" id="q" type="search" placeholder="Search by name, colour or place" value="${esc(query)}">
+    </div>
+    <ul class="catlist">${cats.map(c=>`
+      <li class="catrow" data-id="${c.id}" tabindex="0">
+        <div class="thumb" style="${thumbStyle(c)}"></div>
+        <div class="info">
+          <div class="nm">${esc(topName(c))} ${c.example?'<span class="tag">Example</span>':""}</div>
+          <div class="fr">😺 ${friendLabel(c)} <span class="muted">· ${c.ratings.length} vote${c.ratings.length===1?"":"s"}</span></div>
+          <div class="sub">${esc(COATS[c.coat]?.label)} · ${esc(c.area||"No place given")}</div>
+        </div>
+      </li>`).join("") || `<li class="sec muted">No cats match "${esc(query)}".</li>`}
+    </ul>
+    <div class="foot">
+      <span>Cats nobody has seen for a year are taken off the map. Faded pins have not been seen for 9 months.</span>
+      <span>Everything is saved in this browser only, for now. Other people won't see your cats yet.</span>
+      <button class="linkish" id="resetBtn">Start again with only the example cats</button>
+      <span id="resetConfirm" hidden>This deletes every cat you added. <button class="btn small" id="resetYes">Yes, delete</button> <button class="btn small ghost" id="resetNo">Keep them</button></span>
+    </div>`;
+  const qi=document.getElementById("q");
+  qi.oninput=e=>{ query=e.target.value; const pos=e.target.selectionStart; showList(); const n=document.getElementById("q"); n.focus(); n.setSelectionRange(pos,pos); };
+  panel.querySelectorAll(".catrow").forEach(r=>{ r.onclick=()=>openCat(r.dataset.id,true); r.onkeydown=e=>{ if(e.key==="Enter") openCat(r.dataset.id,true); }; });
+  document.getElementById("resetBtn").onclick=()=>{ document.getElementById("resetConfirm").hidden=false; };
+  document.getElementById("resetNo").onclick=()=>{ document.getElementById("resetConfirm").hidden=true; };
+  document.getElementById("resetYes").onclick=()=>{ state={cats:examples(),mine:{votes:{},rates:{}}}; save(); showList(); toast("Back to the example cats"); };
+}
+
+/* ---------- Cat profile ---------- */
+function openCat(id,fly){
+  const c=state.cats.find(x=>x.id===id); if(!c) return;
+  selected=id; drawMarkers();
+  if(fly) map.flyTo([c.lat,c.lng],Math.max(map.getZoom(),16),{duration:.8});
+  const total=c.names.reduce((s,n)=>s+n.v,0)||1;
+  const myVote=state.mine.votes[id], myRate=state.mine.rates[id];
+  const names=[...c.names].map((n,i)=>({...n,i})).sort((a,b)=>b.v-a.v);
+  panel.innerHTML=`
+    <div class="hero" style="${thumbStyle(c)}"><button class="back" id="back">← All cats</button>${c.photo?"":'<span class="nophoto">No photo yet</span>'}</div>
+    <div class="sec">
+      <h2 class="title">${esc(topName(c))} ${c.example?'<span class="tag">Example</span>':""}</h2>
+      <div class="ratingline"><span class="muted">Friendliness:</span> <b>${friendLabel(c)}</b> <span class="muted">· from ${c.ratings.length} visit${c.ratings.length===1?"":"s"}</span></div>
+      ${meter(c)}
+      <div class="muted">📍 ${esc(c.area||"No place given")}</div>
+      <div class="muted">👀 Last seen ${ago(lastSeen(c))} · seen ${c.sightings} time${c.sightings===1?"":"s"}</div>
+      ${Date.now()-lastSeen(c)>FADING?`<div class="fading">Nobody has seen this cat for ${ago(lastSeen(c)).replace(" ago","")}. It will be taken off the map ${Math.max(1,Math.round((YEAR-(Date.now()-lastSeen(c)))/DAY))} days from now unless someone spots it.</div>`:""}
+      <button class="btn small ghost" id="seen" style="align-self:flex-start">I saw this cat today</button>
+    </div>
+    <div class="sec">
+      <h3>What it looks like</h3>
+      <p style="margin:0">${esc(c.description)}</p>${tr(c.description)}
+      <div class="chips"><span class="chip"><span class="swatch" style="background:${COATS[c.coat]?.css}"></span>${esc(COATS[c.coat]?.label)}</span>
+        ${c.features.map(f=>`<span class="chip">${esc(FEATURES[f])}</span>`).join("")}</div>
+      ${c.photo?"":`<label class="btn small ghost" style="align-self:flex-start">Add a photo<input type="file" accept="image/*" id="photoAdd" hidden></label>`}
+    </div>
+    <div class="sec">
+      <h3>Vote for a name</h3>
+      <ul class="names">${names.map(n=>`
+        <li><div class="bar"><span style="width:${Math.round(n.v/total*100)}%"></span><b>${esc(n.n)}</b><i>${n.v} vote${n.v===1?"":"s"}</i></div>
+        <button class="vote ${myVote===n.n?"on":""}" data-n="${esc(n.n)}">${myVote===n.n?"✓ Voted":"Vote"}</button></li>`).join("")}</ul>
+      <form class="row" id="nameForm"><input type="text" id="newName" maxlength="30" placeholder="Suggest another name"><button class="btn small">Suggest</button></form>
+      <span class="hint">You get one vote per cat. Voting again moves your vote.</span>
+    </div>
+    <div class="sec">
+      <h3>How friendly was it with you?</h3>
+      <span class="hint">This is about how the cat behaves, not how it looks. Every cat is a good cat.</span>
+      <div class="friendly">${FRIENDLY.map((f,i)=>`<button data-r="${i+1}" class="${myRate===i+1?"on":""}"><b>${i+1}</b>${f}</button>`).join("")}</div>
+      ${myRate?`<span class="hint">You rated ${myRate}. Tap another number to change it.</span>`:""}
+    </div>
+    <div class="sec">
+      <h3>Comments (${c.comments.length})</h3>
+      <form id="cForm" class="field">
+        <textarea id="cText" maxlength="500" placeholder="Seen it? Fed it? Is it OK? Share what you know."></textarea>
+        <div class="row"><input type="text" id="cWho" maxlength="30" placeholder="Your name (optional)"><button class="btn small">Post</button></div>
+      </form>
+      <ul class="comments">${[...c.comments].sort((a,b)=>b.at-a.at).map(m=>`
+        <li><span class="who">${esc(m.who||"Anonymous")}<span class="when">${ago(m.at)}</span></span><span>${esc(m.t)}</span>${tr(m.t)}</li>`).join("") || '<li class="muted">No comments yet. Be the first.</li>'}</ul>
+    </div>`;
+  panel.scrollTop=0;
+  document.getElementById("back").onclick=showList;
+  document.getElementById("seen").onclick=()=>{ c.sightings++; c.lastSeen=Date.now(); save(); openCat(id); toast("Sighting logged. Thanks!"); };
+  panel.querySelectorAll(".vote").forEach(b=>b.onclick=()=>{
+    const n=b.dataset.n, prev=state.mine.votes[id];
+    if(prev===n) return;
+    if(prev){ const p=c.names.find(x=>x.n===prev); if(p) p.v=Math.max(0,p.v-1); }
+    c.names.find(x=>x.n===n).v++; state.mine.votes[id]=n; save(); openCat(id); drawMarkers();
+  });
+  document.getElementById("nameForm").onsubmit=e=>{ e.preventDefault();
+    const v=document.getElementById("newName").value.trim(); if(!v) return;
+    if(c.names.some(x=>x.n.toLowerCase()===v.toLowerCase())){ toast(`"${v}" is already on the list. Vote for it instead.`); return; }
+    const prev=state.mine.votes[id]; if(prev){ const p=c.names.find(x=>x.n===prev); if(p) p.v=Math.max(0,p.v-1); }
+    c.names.push({n:v,v:1}); state.mine.votes[id]=v; save(); openCat(id); toast("Name added with your vote");
+  };
+  panel.querySelectorAll(".friendly button").forEach(b=>b.onclick=()=>{
+    const r=+b.dataset.r, prev=state.mine.rates[id];
+    if(prev){ const k=c.ratings.indexOf(prev); if(k>-1) c.ratings.splice(k,1); }
+    c.ratings.push(r); state.mine.rates[id]=r; save(); openCat(id);
+  });
+  document.getElementById("cForm").onsubmit=e=>{ e.preventDefault();
+    const t=document.getElementById("cText").value.trim(); if(!t) return;
+    c.comments.push({who:document.getElementById("cWho").value.trim(),t,at:Date.now()}); save(); openCat(id);
+  };
+  const pa=document.getElementById("photoAdd");
+  if(pa) pa.onchange=async e=>{ const f=e.target.files[0]; if(!f) return; c.photo=await shrink(f); save(); openCat(id); };
+}
+
+/* ---------- Photos: shrink so they fit in the browser's storage ---------- */
+function shrink(file){ return new Promise(res=>{ const img=new Image(); img.onload=()=>{
+  const s=Math.min(1,500/Math.max(img.width,img.height)); const cv=document.createElement("canvas");
+  cv.width=img.width*s; cv.height=img.height*s; cv.getContext("2d").drawImage(img,0,0,cv.width,cv.height);
+  res(cv.toDataURL("image/jpeg",.72)); URL.revokeObjectURL(img.src); }; img.src=URL.createObjectURL(file); }); }
+
+/* ---------- Adding a cat ---------- */
+const banner=document.getElementById("banner");
+document.getElementById("addBtn").onclick=startPick;
+document.getElementById("cancelPick").onclick=cancelAdd;
+function startPick(){ picking=true; banner.hidden=false; document.getElementById("map").style.cursor="crosshair"; }
+function cancelAdd(){ picking=false; banner.hidden=true; document.getElementById("map").style.cursor="";
+  if(draftMarker){ map.removeLayer(draftMarker); draftMarker=null; } draft=null; showList(); }
+map.on("click",e=>{ if(!picking) return; picking=false; banner.hidden=true; document.getElementById("map").style.cursor="";
+  draft={lat:e.latlng.lat,lng:e.latlng.lng,coat:null,features:[],photo:null};
+  draftMarker=L.marker(e.latlng,{draggable:true,icon:pinIcon({coat:null},"new")}).addTo(map);
+  draftMarker.on("dragend",()=>{ const p=draftMarker.getLatLng(); draft.lat=p.lat; draft.lng=p.lng; checkDupes(); });
+  showAddForm();
+});
+
+function showAddForm(){
+  panel.innerHTML=`
+    <div class="sec">
+      <h2>New cat</h2>
+      <p class="muted" style="margin:0">You can drag the dashed pin if it's in the wrong spot. Fill in what the cat looks like, and we'll check whether someone has already added it.</p>
+    </div>
+    <form id="addForm">
+      <div class="sec field"><span>Main colour</span>
+        <div class="chips">${Object.entries(COATS).map(([k,v])=>`<label class="chip"><input type="radio" name="coat" value="${k}"><span class="swatch" style="background:${v.css}"></span>${v.label}</label>`).join("")}</div></div>
+      <div class="sec field"><span>Anything that makes it stand out?</span>
+        <div class="chips">${Object.entries(FEATURES).map(([k,v])=>`<label class="chip"><input type="checkbox" name="feat" value="${k}">${v}</label>`).join("")}</div>
+        <span class="hint">A clipped ear tip means a vet has neutered the cat. Lots of Bangkok street cats have kinked tails.</span></div>
+      <div class="sec" id="dupeBox"></div>
+      <div class="sec field"><span>Describe it so others can recognise it</span>
+        <textarea id="desc" maxlength="400" placeholder="e.g. White with a grey patch over one eye. Sleeps under the motorbike taxi stand."></textarea></div>
+      <div class="sec field"><span>Where exactly?</span>
+        <input type="text" id="area" maxlength="80" placeholder="e.g. Soi 11, outside the pharmacy"></div>
+      <div class="sec field"><span>Suggest a name</span>
+        <input type="text" id="nm" maxlength="30" placeholder="e.g. Moo Ping"></div>
+      <div class="sec field"><span>How friendly was it?</span>
+        <div class="friendly">${FRIENDLY.map((f,i)=>`<label class="chip" style="border-radius:10px;padding:8px 4px;text-align:center;font-size:.75rem;line-height:1.2"><input type="radio" name="fr" value="${i+1}"><b style="display:block;font-size:1.1rem">${i+1}</b>${f}</label>`).join("")}</div></div>
+      <div class="sec field"><span>Photo (optional)</span><input type="file" id="ph" accept="image/*"></div>
+      <div class="sec row"><button class="btn" id="saveNew" type="submit">Save new cat</button><button class="btn ghost" type="button" id="cancelNew">Cancel</button></div>
+    </form>`;
+  panel.scrollTop=0;
+  const f=document.getElementById("addForm");
+  f.addEventListener("change",e=>{
+    if(e.target.name==="coat"){ draft.coat=e.target.value; draftMarker.setIcon(pinIcon(draft,"new")); }
+    if(e.target.name==="feat") draft.features=[...f.querySelectorAll("input[name=feat]:checked")].map(x=>x.value);
+    checkDupes();
+  });
+  document.getElementById("ph").onchange=async e=>{ const x=e.target.files[0]; draft.photo=x?await shrink(x):null; };
+  document.getElementById("cancelNew").onclick=cancelAdd;
+  f.onsubmit=e=>{ e.preventDefault();
+    const desc=document.getElementById("desc").value.trim();
+    if(!draft.coat){ toast("Pick the cat's main colour first"); return; }
+    if(desc.length<5){ toast("Add a short description so others can recognise it"); document.getElementById("desc").focus(); return; }
+    const fr=f.querySelector("input[name=fr]:checked"), nm=document.getElementById("nm").value.trim();
+    const cat={id:uid(),lat:draft.lat,lng:draft.lng,coat:draft.coat,features:draft.features,description:desc,
+      area:document.getElementById("area").value.trim(),photo:draft.photo,names:nm?[{n:nm,v:1}]:[],
+      ratings:fr?[+fr.value]:[],comments:[],sightings:1,at:Date.now(),lastSeen:Date.now()};
+    state.cats.push(cat); if(nm) state.mine.votes[cat.id]=nm; if(fr) state.mine.rates[cat.id]=+fr.value;
+    save(); map.removeLayer(draftMarker); draftMarker=null; draft=null; openCat(cat.id); toast("Cat added to the map!");
+  };
+  checkDupes();
+}
+
+/* Score each existing cat: how close is it, same colour, same features? */
+function checkDupes(){
+  const box=document.getElementById("dupeBox"); if(!box||!draft) return;
+  const matches=state.cats.map(c=>{
+    const d=distM(draft,c); if(d>1500) return null;
+    let score=d<300?3:d<800?2:1;
+    if(draft.coat){ if(c.coat===draft.coat) score+=4; else score-=3; }
+    const shared=c.features.filter(x=>draft.features.includes(x)).length; score+=shared*2;
+    return score>=3?{c,d,score,shared}:null;
+  }).filter(Boolean).sort((a,b)=>b.score-a.score).slice(0,3);
+  if(!matches.length){ box.innerHTML=`<div class="ok">✓ No similar cats nearby${draft.coat?"":" yet. Pick a colour to check more closely"}.</div>`; return; }
+  box.innerHTML=`<div class="dupes"><h3>Is it one of these cats?</h3>
+    <span class="hint">These cats are already on the map near here and look similar. If it's the same cat, log a sighting instead of adding it again.</span>
+    ${matches.map(m=>`<div class="dupe"><div class="thumb" style="${thumbStyle(m.c)}"></div>
+      <div class="info"><b>${esc(topName(m.c))}</b> · ${fmtDist(m.d)} away<br><span class="muted">${esc(m.c.description.slice(0,80))}${m.c.description.length>80?"…":""}</span></div>
+      <button type="button" class="btn small" data-same="${m.c.id}">Same cat</button></div>`).join("")}</div>`;
+  box.querySelectorAll("[data-same]").forEach(b=>b.onclick=()=>{
+    const c=state.cats.find(x=>x.id===b.dataset.same); c.sightings++; c.lastSeen=Date.now(); save();
+    map.removeLayer(draftMarker); draftMarker=null; draft=null; openCat(c.id,true); toast(`Sighting added to ${topName(c)}`);
+  });
+}
+
+drawMarkers(); showList();
+</script>
+</body>
+</html>
