@@ -2,7 +2,7 @@
 
 A map of Bangkok where neighbours pin the street cats they spot. Each cat gets a profile: a friendliness rating, name votes, a description so nobody adds the same cat twice, and comments in Thai or English.
 
-**Try it:** https://nathansmailes.github.io/maew-maps/
+**Try it:** https://nathansmailes.github.io/Maew-Maps/
 
 ## How it works right now
 
