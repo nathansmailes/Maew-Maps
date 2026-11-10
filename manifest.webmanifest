@@ -1,0 +1,19 @@
+{
+  "name": "Maew Maps",
+  "short_name": "Maew Maps",
+  "description": "A map of Bangkok's neighbourhood cats. Pin cats you spot, vote on their names, rate how friendly they are and leave comments.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f6b5c",
+  "theme_color": "#0f6b5c",
+  "lang": "en",
+  "categories": ["lifestyle", "social", "travel"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Maew Maps</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f6b5c">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Maew Maps">
+<meta name="description" content="A map of Bangkok's neighbourhood cats. Pin cats you spot, vote on their names and rate how friendly they are.">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Sans+Thai:wght@400;700&display=swap">
@@ -396,11 +403,24 @@ function showRanks(){
     <div class="sec field"><span>Your name on the leaderboard</span>
       <form class="row" id="nickForm"><input type="text" id="nick" maxlength="20" placeholder="e.g. Soi 11 Spotter" value="${esc(state.nick)}"><button class="btn small">Save</button></form>
       <span class="hint">Use a nickname, not your full name. Without one, you show as "Anonymous cat fan".</span></div>
+    <div class="sec"><h3>Your account</h3>
+      <span class="hint">Signed in as ${esc(myEmail)}. <a href="privacy.html" target="_blank">Privacy policy</a></span>
+      <button type="button" class="linkish" id="delAcct">Delete my account</button>
+      <div id="delConfirm" class="repbox" hidden>
+        <span>This permanently deletes your sign-in, nickname, comments, votes, ratings and points. Cats you added stay on the map, without your name.</span>
+        <div class="row"><button type="button" class="btn small" id="delYes" style="background:var(--danger)">Yes, delete my account</button>
+          <button type="button" class="btn small ghost" id="delNo">Keep it</button></div></div></div>
     <div class="sec"><h3>All ranks</h3>
       <ul class="ladder">${RANKS.map(x=>`<li class="${x===r?"cur":""}"><span>${x.icon} ${x.name}</span><span class="muted">${x.min} points</span></li>`).join("")}</ul></div>`;
   panel.scrollTop=0;
   document.getElementById("back").onclick=showList;
   document.getElementById("signOut").onclick=signOut;
+  document.getElementById("delAcct").onclick=()=>document.getElementById("delConfirm").hidden=false;
+  document.getElementById("delNo").onclick=()=>document.getElementById("delConfirm").hidden=true;
+  document.getElementById("delYes").onclick=async()=>{ const b=document.getElementById("delYes"); b.disabled=true; b.textContent="Deleting…";
+    const {error}=await sb.rpc("delete_my_account");
+    if(error){ console.error(error); b.disabled=false; b.textContent="Yes, delete my account"; toast("Couldn't delete your account. Try again, or email us."); return; }
+    await signOut(); toast("Your account has been deleted"); };
   document.getElementById("nickForm").onsubmit=async e=>{ e.preventDefault();
     const n=document.getElementById("nick").value.trim(); if(n.length<2){ toast("Nicknames need at least 2 letters"); return; }
     if(await act(()=>store.nickname(n),"Nickname saved")) showRanks(); };
@@ -531,6 +551,7 @@ function showList(){
       </li>`).join("") || `<li class="sec muted">No cats match "${esc(query)}".</li>`}
     </ul>
     <div class="foot">
+      <a href="privacy.html" style="color:inherit">Privacy policy</a>
       <span>Cats nobody has seen for a year are taken off the map. Faded pins have not been seen for 9 months.</span>
       ${REMOTE?`<span>Cats, votes and comments are shared with everyone using Maew Maps.</span>`:`
       <span>Everything is saved in this browser only, for now. Other people won't see your cats yet.</span>
@@ -737,6 +758,7 @@ async function start(){
   window.addEventListener("focus",async()=>{ if(view!=="list") return; try{ await refresh(); showList(); renderChip(); }catch(e){} });
 }
 start();
+if("serviceWorker" in navigator && location.protocol==="https:") navigator.serviceWorker.register("sw.js").catch(()=>{});
 </script>
 </body>
 </html>
