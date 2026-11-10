@@ -41,7 +41,7 @@ Free, no adverts. Sign in with just your email address.
 Lifestyle
 
 ## Contact email
-CONTACT_EMAIL
+maewmaps@gmail.com
 
 ## Privacy policy URL
 https://nathansmailes.github.io/Maew-Maps/privacy.html
