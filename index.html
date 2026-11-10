@@ -66,6 +66,11 @@ main{flex:1;display:flex;min-height:0;position:relative}
 .tag{display:inline-block;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;padding:1px 7px;border-radius:999px;background:var(--soft);color:var(--accent);font-weight:700;vertical-align:middle}
 
 .fr{font-size:.92rem}
+.rep{background:none;border:0;padding:0;font-size:.8rem;color:var(--muted);align-self:flex-start}
+.rep:hover{color:var(--danger);text-decoration:underline}
+.repbox{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:12px;padding:10px;width:100%}
+.cact{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.cact .repbox{flex-basis:100%}
 .tr{font-size:.8rem;color:var(--accent);text-decoration:none;align-self:flex-start;margin-top:2px}
 .tr:hover{text-decoration:underline}
 .fading{border-left:4px solid var(--marigold);background:color-mix(in srgb,var(--marigold) 12%,var(--panel));padding:8px 12px;border-radius:6px;font-size:.88rem}
@@ -232,8 +237,9 @@ const local = {
   async rate(id,r){ const c=find(id), prev=state.mine.rates[id];
     if(prev){ const k=c.ratings.indexOf(prev); if(k>-1) c.ratings.splice(k,1); }
     c.ratings.push(r); state.mine.rates[id]=r; save(); },
-  async comment(id,who,t){ find(id).comments.push({who,t,at:Date.now()}); save(); },
-  async setPhoto(id,p){ find(id).photo=p; save(); }
+  async comment(id,who,t){ find(id).comments.push({id:uid(),who,t,at:Date.now()}); save(); },
+  async setPhoto(id,p){ find(id).photo=p; save(); },
+  async report(type,id,reason){ (state.mine.reported=state.mine.reported||{})[type+":"+id]=reason; save(); }
 };
 
 let sb=null, me=null;
@@ -253,7 +259,11 @@ const remote = {
     await chk(sb.from("votes").upsert({cat_id:id,user_id:me,name_id:data.id})); if(!skipRefresh) await refresh(); },
   async rate(id,r,skipRefresh){ await chk(sb.from("ratings").upsert({cat_id:id,user_id:me,score:r})); if(!skipRefresh) await refresh(); },
   async comment(id,who,t){ await chk(sb.from("comments").insert({cat_id:id,who:who||null,body:t})); await refresh(); },
-  async setPhoto(id,p){ await chk(sb.from("cats").update({photo:p}).eq("id",id)); await refresh(); }
+  async setPhoto(id,p){ await chk(sb.from("cats").update({photo:p}).eq("id",id)); await refresh(); },
+  async report(type,id,reason){
+    const {error}=await sb.from("reports").insert({target_type:type,target_id:id,reason});
+    if(error && error.code!=="23505") throw error;   /* 23505 = already reported by this person: fine */
+    await refresh(); }
 };
 const store = REMOTE ? remote : local;
 
@@ -265,11 +275,13 @@ async function refresh(){
   const byId={}, nameById={};
   state.cats=cats.map(c=>byId[c.id]={id:c.id,lat:c.lat,lng:c.lng,coat:c.coat,features:c.features||[],description:c.description,area:c.area,
     photo:c.photo,example:c.example,sightings:c.sightings,at:Date.parse(c.created_at),lastSeen:Date.parse(c.last_seen),names:[],ratings:[],comments:[]});
-  state.mine={votes:{},rates:{}};
+  state.mine={votes:{},rates:{},reported:{}};
+  const mine=await sb.from("reports").select("target_type,target_id,reason");   /* only your own reports are visible */
+  if(!mine.error) mine.data.forEach(r=>state.mine.reported[r.target_type+":"+r.target_id]=r.reason);
   names.forEach(n=>{ const c=byId[n.cat_id]; if(!c) return; const o={n:n.name,v:0,id:n.id}; nameById[n.id]=o; c.names.push(o); });
   votes.forEach(v=>{ const o=nameById[v.name_id]; if(!o) return; o.v++; if(v.user_id===me) state.mine.votes[v.cat_id]=o.n; });
   ratings.forEach(r=>{ const c=byId[r.cat_id]; if(!c) return; c.ratings.push(r.score); if(r.user_id===me) state.mine.rates[r.cat_id]=r.score; });
-  comments.forEach(m=>{ const c=byId[m.cat_id]; if(c) c.comments.push({who:m.who,t:m.body,at:Date.parse(m.created_at)}); });
+  comments.forEach(m=>{ const c=byId[m.cat_id]; if(c) c.comments.push({id:m.id,who:m.who,t:m.body,at:Date.parse(m.created_at)}); });
 }
 
 /* Run a save, show a message, and say clearly if it didn't work */
@@ -317,6 +329,26 @@ function distM(a,b){ const R=6371000,toR=Math.PI/180; const dLat=(b.lat-a.lat)*t
 /* Translate: Thai text gets "Translate to English", English gets "แปลเป็นภาษาไทย". Opens Google Translate in a new tab. */
 function tr(text){ const th=/[\u0E00-\u0E7F]/.test(text);
   return `<a class="tr" target="_blank" rel="noopener" href="https://translate.google.com/?sl=auto&tl=${th?"en":"th"}&op=translate&text=${encodeURIComponent(text)}">${th?"🌐 Translate to English":"🌐 แปลเป็นภาษาไทย"}</a>`; }
+/* ---------- Reporting ---------- */
+const REASONS={rude:"Rude or hurtful",spam:"Spam or advert",fake:"Not a real cat",duplicate:"Same cat is already on the map",private:"Shows someone's face or private details"};
+const reported=(type,id)=>(state.mine.reported||{})[type+":"+id];
+function reportLink(type,id,label){
+  return reported(type,id) ? `<span class="hint">⚑ You reported this. Thanks.</span>`
+    : `<button type="button" class="rep" data-type="${type}" data-id="${id}">⚑ ${label}</button><div class="repbox" hidden></div>`; }
+function wireReports(reopen){
+  panel.querySelectorAll(".rep").forEach(b=>b.onclick=()=>{
+    const box=b.nextElementSibling; if(!box.hidden){ box.hidden=true; return; }
+    box.innerHTML=`<span class="hint">What's wrong with it?</span>
+      <div class="chips">${Object.entries(REASONS).map(([k,v])=>`<label class="chip"><input type="radio" name="why-${b.dataset.id}" value="${k}">${v}</label>`).join("")}</div>
+      <div class="row"><button type="button" class="btn small" data-send>Send report</button><button type="button" class="btn small ghost" data-cancel>Cancel</button></div>
+      <span class="hint">If 3 people report it, it's hidden until it's checked.</span>`;
+    box.hidden=false;
+    box.querySelector("[data-cancel]").onclick=()=>box.hidden=true;
+    box.querySelector("[data-send]").onclick=async()=>{
+      const r=box.querySelector("input:checked"); if(!r){ toast("Pick a reason first"); return; }
+      if(await act(()=>store.report(b.dataset.type,b.dataset.id,r.value),"Report sent. Thank you.")) reopen();
+    };
+  }); }
 const fmtDist = m => m<1000? Math.round(m/10)*10+" m" : (m/1000).toFixed(1)+" km";
 function toast(msg){ const t=document.getElementById("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toast.h); toast.h=setTimeout(()=>t.hidden=true,2600); }
 const panel=document.getElementById("panel");
@@ -379,6 +411,7 @@ function openCat(id,fly){
       <div class="muted">👀 Last seen ${ago(lastSeen(c))} · seen ${c.sightings} time${c.sightings===1?"":"s"}</div>
       ${Date.now()-lastSeen(c)>FADING?`<div class="fading">Nobody has seen this cat for ${ago(lastSeen(c)).replace(" ago","")}. It will be taken off the map ${Math.max(1,Math.round((YEAR-(Date.now()-lastSeen(c)))/DAY))} days from now unless someone spots it.</div>`:""}
       <button class="btn small ghost" id="seen" style="align-self:flex-start">I saw this cat today</button>
+      ${reportLink("cat",c.id,"Report this listing")}
     </div>
     <div class="sec">
       <h3>What it looks like</h3>
@@ -402,16 +435,18 @@ function openCat(id,fly){
       ${myRate?`<span class="hint">You rated ${myRate}. Tap another number to change it.</span>`:""}
     </div>
     <div class="sec">
-      <h3>Comments (${c.comments.length})</h3>
+      <h3>Comments (${c.comments.filter(m=>!reported("comment",m.id)).length})</h3>
       <form id="cForm" class="field">
         <textarea id="cText" maxlength="500" placeholder="Seen it? Fed it? Is it OK? Share what you know."></textarea>
         <div class="row"><input type="text" id="cWho" maxlength="30" placeholder="Your name (optional)"><button class="btn small">Post</button></div>
       </form>
-      <ul class="comments">${[...c.comments].sort((a,b)=>b.at-a.at).map(m=>`
-        <li><span class="who">${esc(m.who||"Anonymous")}<span class="when">${ago(m.at)}</span></span><span>${esc(m.t)}</span>${tr(m.t)}</li>`).join("") || '<li class="muted">No comments yet. Be the first.</li>'}</ul>
+      <ul class="comments">${[...c.comments].filter(m=>!reported("comment",m.id)).sort((a,b)=>b.at-a.at).map(m=>`
+        <li><span class="who">${esc(m.who||"Anonymous")}<span class="when">${ago(m.at)}</span></span><span>${esc(m.t)}</span>
+          <div class="cact">${tr(m.t)}${m.id?reportLink("comment",m.id,"Report"):""}</div></li>`).join("") || '<li class="muted">No comments yet. Be the first.</li>'}</ul>
     </div>`;
   panel.scrollTop=0;
   document.getElementById("back").onclick=showList;
+  wireReports(()=>openCat(id));
   document.getElementById("seen").onclick=async()=>{ if(await act(()=>store.sighting(id),"Sighting logged. Thanks!")) openCat(id); };
   panel.querySelectorAll(".vote").forEach(b=>b.onclick=async()=>{
     const n=b.dataset.n; if(state.mine.votes[id]===n) return;
