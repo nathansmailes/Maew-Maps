@@ -444,7 +444,7 @@ const avg = a => a.length? a.reduce((x,y)=>x+y,0)/a.length : 0;
 function friendLabel(c){ return c.ratings.length? FRIENDLY[Math.round(avg(c.ratings))-1] : "Not rated yet"; }
 function meter(c){ const pct=c.ratings.length? (avg(c.ratings)-1)/4*100 : null;
   return `<div class="meter" role="img" aria-label="Friendliness: ${friendLabel(c)}"><div class="track">${pct===null?"":`<i style="left:${pct}%"></i>`}</div><div class="ends"><span>Shy</span><span>Cuddly</span></div></div>`; }
-function thumbStyle(c){ return c.photo? `background-image:url(${c.photo})` : `background:${(COATS[c.coat]||{}).css||"#ccc"}`; }
+function thumbStyle(c){ const ph=bestCover[c.id]||c.photo; return ph? `background-image:url(${ph})` : `background:${(COATS[c.coat]||{}).css||"#ccc"}`; }
 function distM(a,b){ const R=6371000,toR=Math.PI/180; const dLat=(b.lat-a.lat)*toR,dLng=(b.lng-a.lng)*toR;
   const x=Math.sin(dLat/2)**2+Math.cos(a.lat*toR)*Math.cos(b.lat*toR)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
 /* Translate: Thai text gets "Translate to English", English gets "แปลเป็นภาษาไทย". Opens Google Translate in a new tab. */
@@ -719,7 +719,7 @@ function openCat(id,fly){
   panel.scrollTop=0;
   wireHero(c,[]);
   wireReports(()=>openCat(id));
-  if(!c.example) store.loadPhotos(id).then(extra=>{ if(selected!==id||view!=="cat") return; wireHero(c,extra); });
+  if(!c.example) store.loadPhotos(id).then(async extra=>{ await rankPics(c,extra); if(selected!==id||view!=="cat") return; wireHero(c,extra); });
   const cb=document.getElementById("collectBtn"); if(cb) cb.onclick=()=>collectCat(id,cb);
   panel.querySelectorAll(".vote").forEach(b=>b.onclick=async()=>{
     const n=b.dataset.n; if(state.mine.votes[id]===n) return;
@@ -743,10 +743,44 @@ function openCat(id,fly){
   };
 }
 
+/* ---------- Picking the best photo automatically ----------
+   Each photo gets a score on this device: sharp edges (not blurry) and good lighting (not too dark or washed out).
+   The best photo is shown first and used as the cat's picture in the list and collection. */
+const bestCover={}, scoreCache={}, picOrder={};
+function photoScore(src){ if(scoreCache[src]!==undefined) return Promise.resolve(scoreCache[src]);
+  return new Promise(res=>{ const img=new Image(); img.onload=()=>{ try{
+      const W=160, sc=W/Math.max(img.width,img.height), w=Math.max(8,Math.round(img.width*sc)), h=Math.max(8,Math.round(img.height*sc));
+      const cv=document.createElement("canvas"); cv.width=w; cv.height=h; const x=cv.getContext("2d"); x.drawImage(img,0,0,w,h);
+      const d=x.getImageData(0,0,w,h).data, g=new Float32Array(w*h);
+      for(let i=0;i<w*h;i++) g[i]=.299*d[i*4]+.587*d[i*4+1]+.114*d[i*4+2];
+      let sum=0,sq=0,lap=0,lap2=0,n=0;
+      for(let i=0;i<w*h;i++){ sum+=g[i]; sq+=g[i]*g[i]; }
+      for(let yy=1;yy<h-1;yy++) for(let xx=1;xx<w-1;xx++){ const i=yy*w+xx;
+        const L=4*g[i]-g[i-1]-g[i+1]-g[i-w]-g[i+w]; lap+=L; lap2+=L*L; n++; }
+      const mean=sum/(w*h), contrast=Math.sqrt(Math.max(0,sq/(w*h)-mean*mean)), sharp=lap2/n-(lap/n)**2;
+      const light=mean<60?(60-mean)/60:mean>200?(mean-200)/55:0;
+      res(scoreCache[src]=Math.log1p(sharp)+Math.min(contrast,60)/30-light*3);
+    }catch(e){ res(scoreCache[src]=0); } };
+    img.onerror=()=>res(scoreCache[src]=-99); img.src=src; }); }
+async function rankPics(c,extra){
+  const pics=[...(c.photo?[{id:null,src:c.photo}]:[]),...extra]; if(pics.length<2){ delete picOrder[c.id]; return; }
+  const sc=await Promise.all(pics.map(p=>photoScore(p.src)));
+  picOrder[c.id]=pics.map((p,i)=>({p,s:sc[i]})).sort((a,b)=>b.s-a.s).map(o=>o.p.src);
+  bestCover[c.id]=picOrder[c.id][0]; }
+function allPics(c,extra){ const pics=[...(c.photo?[{id:null,src:c.photo}]:[]),...extra], o=picOrder[c.id];
+  return o? [...pics].sort((a,b)=>(o.indexOf(a.src)+1||99)-(o.indexOf(b.src)+1||99)) : pics; }
+
+/* In the background, find the best photo for every cat that has more than one, so the list shows it */
+async function bestCovers(){ try{
+  const {data,error}=await sb.from("cat_photos").select("cat_id"); if(error) return;
+  for(const id of new Set(data.map(r=>r.cat_id))){ const c=find(id); if(!c||c.example) continue; await rankPics(c,await store.loadPhotos(id)); }
+  if(view==="list") showList(); else if(view==="collection") showCollection();
+}catch(e){} }
+
 /* ---------- Photo slideshow: swipe on a phone, arrows on a computer ---------- */
 let slideAt=0;
 function heroInner(c,extra){
-  const pics=[...(c.photo?[{id:null,src:c.photo}]:[]),...extra];
+  const pics=allPics(c,extra);
   const n=pics.length;
   return `${n?`<div class="slides" id="slides">${pics.map(p=>`<div class="slide" style="background-image:url(${p.src})"></div>`).join("")}</div>`:""}
     <button class="back" id="back">← All cats</button>
@@ -756,7 +790,7 @@ function heroInner(c,extra){
       <div class="dots">${pics.map((_,i)=>`<i class="${i?"":"on"}"></i>`).join("")}</div>`:""}`; }
 function wireHero(c,extra){
   const id=c.id, hero=document.getElementById("hero"); if(!hero) return;
-  const pics=[...(c.photo?[{id:null,src:c.photo}]:[]),...extra];
+  const pics=allPics(c,extra);
   hero.innerHTML=heroInner(c,extra); if(pics.length) hero.style.background="var(--line)";
   document.getElementById("back").onclick=showList;
   const sl=document.getElementById("slides");
@@ -781,9 +815,8 @@ function wireHero(c,extra){
     wireReports(()=>{ delete photoCache[id]; openCat(id); });
     const pa=document.getElementById("photoAdd");
     if(pa) pa.onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const ph=await shrink(f);
-      const last=pics.length;
       if(await act(()=>c.photo?store.addPhoto(id,ph):store.setPhoto(id,ph),"Photo added. Thanks!")){
-        openCat(id); setTimeout(()=>{ const s=document.getElementById("slides"); if(s) s.scrollTo({left:last*s.clientWidth}); },600); } };
+        openCat(id); } };
     const rm=document.getElementById("rmPhoto");
     if(rm) rm.onclick=async()=>{ if(!confirm("Remove this photo?")) return;
       if(await act(()=>store.removePhoto(id,cur.id),"Photo removed")) openCat(id); }; }
@@ -975,6 +1008,7 @@ async function start(){
   try{ await refresh(); }
   catch(e){ console.error(e); panel.innerHTML='<div class="sec"><h2>Couldn\'t load the cats</h2><p class="muted">Check your internet connection and refresh the page.</p></div>'; return; }
   drawMarkers(); showList(); renderChip();
+  bestCovers();
   if(cameBack){ toast("You're signed in. Welcome!"); if(!state.nick) showRanks(); }
   sb.auth.onAuthStateChange((ev,sess)=>{ if(!sess) return; const u=sess.user;
     if(u.id!==me||(isGuest&&!u.is_anonymous)){ me=u.id; isGuest=!!u.is_anonymous; myEmail=u.email||""; setTimeout(()=>refresh().then(()=>{ renderChip(); if(view==="list") showList(); }).catch(()=>{}),0); } });
