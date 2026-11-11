@@ -117,7 +117,10 @@ main{flex:1;display:flex;min-height:0;position:relative}
 .collectbox{border:2px solid var(--accent);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
 .collectbox.got{border-style:solid;background:color-mix(in srgb,var(--accent) 8%,transparent)}
 .rar{display:inline-block;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:999px;color:#fff;vertical-align:middle}
-.rar.common{background:#6b7a73}.rar.uncommon{background:#2a7de1}.rar.rare{background:#b5651d}
+.rar.common{background:#6b7a73}.rar.legendary{background:linear-gradient(90deg,#b8860b,#f2c94c,#b8860b);color:#3a2a00}
+.card.legendary{border-color:#d4a017;box-shadow:0 0 12px 2px rgba(242,201,76,.7)}
+.pin.legpin{border-color:#f2c94c;box-shadow:0 0 10px 3px rgba(242,201,76,.9)}
+.legchip{border-color:#d4a017!important;background:color-mix(in srgb,#f2c94c 25%,transparent)!important}.rar.uncommon{background:#2a7de1}.rar.rare{background:#b5651d}
 .colbar{height:10px;border-radius:999px;background:var(--line);overflow:hidden}.colbar i{display:block;height:100%;background:var(--marigold)}
 .badges{display:flex;flex-wrap:wrap;gap:8px}
 .bdg{display:flex;flex-direction:column;align-items:center;width:76px;text-align:center;font-size:.72rem;line-height:1.2;gap:3px}
@@ -128,7 +131,7 @@ main{flex:1;display:flex;min-height:0;position:relative}
 .card.uncommon{border-color:#2a7de1}.card.rare{border-color:#b5651d;box-shadow:0 0 0 2px color-mix(in srgb,#f2a516 50%,transparent)}
 .card .pic{aspect-ratio:1;background-size:cover;background-position:center;display:grid;place-items:center;font-size:2.4rem}
 .card .txt{padding:6px 8px;font-size:.8rem;line-height:1.3}.card .txt b{display:block;font-size:.9rem}
-.card.mystery{border-style:dashed;border-color:var(--line)}.card.mystery .pic{background:var(--line);color:var(--muted);font-size:2.6rem}
+.card.mystery{border-style:dashed;border-color:var(--line)}.card.mystery.legendary{border-color:#d4a017}.card.mystery .pic{background:var(--line);color:var(--muted);font-size:2.6rem}
 .nophoto{position:absolute;bottom:10px;right:10px;background:var(--panel);color:var(--muted);font-size:.8rem;padding:3px 10px;border-radius:999px}
 .hero .back{font-size:.9rem;position:absolute;top:10px;left:10px;background:var(--panel);color:var(--ink);border:0;border-radius:999px;padding:6px 12px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.2)}
 .title{font-family:var(--display);font-weight:800;font-size:1.7rem;line-height:1.1;margin:0;text-wrap:balance}
@@ -157,7 +160,7 @@ label.chip:has(input:focus-visible){outline:3px solid var(--marigold)}
 
 .row{display:flex;gap:8px}
 .row > *{min-width:0}
-input[type=text],textarea{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+input[type=text],textarea,select{width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
 textarea{min-height:70px;resize:vertical}
 .field{display:flex;flex-direction:column;gap:6px}
 .field > span{font-weight:700}
@@ -236,6 +239,10 @@ const FEATURES = {
   kinked:"Kinked or bobbed tail", eartip:"Clipped ear (neutered)", collar:"Wears a collar",
   oneeye:"One eye", limp:"Limps", fluffy:"Long fur", kitten:"Kitten", oddeyes:"Odd-coloured eyes"
 };
+/* Pedigree breeds are very rare on the soi, so they count as Legendary in the cat collection */
+const BREEDS = {persian:"Persian",ragdoll:"Ragdoll",mainecoon:"Maine Coon",british:"British Shorthair",scottish:"Scottish Fold",
+  exotic:"Exotic Shorthair",bengal:"Bengal",sphynx:"Sphynx (hairless)",khaomanee:"Khao Manee (Thai, white with odd eyes)",korat:"Korat (Thai, silver-blue)"};
+const breedOf = c => (c.features||[]).find(f=>BREEDS[f]);
 const FRIENDLY = ["Runs away","Keeps away","Lets you near","Likes a stroke","Lap cat"];
 
 /* ---------- Where the cats are saved ----------
@@ -419,7 +426,7 @@ const markers={}; let selected=null, picking=false, draft=null, draftMarker=null
 function pinIcon(cat,extra=""){
   const c=COATS[cat.coat]||{css:"#999"};
   return L.divIcon({className:"",iconSize:[34,34],iconAnchor:[17,34],popupAnchor:[0,-30],
-    html:`<div class="pin ${extra} ${cat.warns?"warnpin":""}" style="background:${c.css};${cat.at&&Date.now()-lastSeen(cat)>FADING?"opacity:.45":""}"><span>${!cat.id||isCollected(cat.id)||cat.example?"🐾":"❔"}</span></div>`});
+    html:`<div class="pin ${extra} ${cat.warns?"warnpin":cat.features&&breedOf(cat)?"legpin":""}" style="background:${c.css};${cat.at&&Date.now()-lastSeen(cat)>FADING?"opacity:.45":""}"><span>${!cat.id||isCollected(cat.id)||cat.example?"🐾":"❔"}</span></div>`});
 }
 function drawMarkers(){
   for(const id in markers){ map.removeLayer(markers[id]); delete markers[id]; }
@@ -681,7 +688,7 @@ function openCat(id,fly){
       <h3>What it looks like</h3>
       <p style="margin:0">${esc(c.description)}</p>${tr(c.description)}
       <div class="chips"><span class="chip"><span class="swatch" style="background:${COATS[c.coat]?.css}"></span>${esc(COATS[c.coat]?.label)}</span>
-        ${c.features.map(f=>`<span class="chip">${esc(FEATURES[f])}</span>`).join("")}</div>
+        ${c.features.map(f=>BREEDS[f]?`<span class="chip legchip">👑 ${esc(BREEDS[f])}</span>`:FEATURES[f]?`<span class="chip">${esc(FEATURES[f])}</span>`:"").join("")}</div>
       <div class="photoacts" id="photoActs"></div>
     </div>
     <div class="sec">
@@ -787,9 +794,9 @@ function wireHero(c,extra){
 const COLLECT_M=150;
 const RARITY={black:"common",white:"common",ginger:"common",tabby:"common",grey:"common",blackwhite:"common",
   tortie:"uncommon",cream:"uncommon",calico:"rare",pointed:"rare"};
-const RARE_LABEL={common:"Common",uncommon:"Uncommon",rare:"Rare"};
-const rarity=c=>RARITY[c.coat]||"common";
-const rarChip=c=>`<span class="rar ${rarity(c)}">${rarity(c)==="rare"?"✨ ":""}${RARE_LABEL[rarity(c)]}</span>`;
+const RARE_LABEL={common:"Common",uncommon:"Uncommon",rare:"Rare",legendary:"Legendary"};
+const rarity=c=>breedOf(c)?"legendary":RARITY[c.coat]||"common";
+const rarChip=c=>`<span class="rar ${rarity(c)}">${{rare:"✨ ",legendary:"👑 "}[rarity(c)]||""}${RARE_LABEL[rarity(c)]}</span>`;
 const isCollected=id=>!!(state.mine.collected||{})[id];
 const collectable=()=>state.cats.filter(c=>!c.example);
 const collectedCount=()=>collectable().filter(c=>isCollected(c.id)).length;
@@ -824,11 +831,12 @@ const BADGES=[
   {icon:"🔟",name:"Cat crew",hint:"Collect 10 cats",test:s=>s.n>=10},
   {icon:"🌟",name:"Uncommon find",hint:"Collect a tortie or cream cat",test:s=>s.tiers.uncommon},
   {icon:"✨",name:"Rare find",hint:"Collect a calico or Siamese-type cat",test:s=>s.tiers.rare},
+  {icon:"👑",name:"Legendary find",hint:"Collect a pedigree cat, like a Persian or Ragdoll",test:s=>s.tiers.legendary},
   {icon:"🌈",name:"Every colour",hint:"Collect one of every coat colour",test:s=>Object.keys(COATS).every(k=>s.coats.has(k))}];
 function showCollection(){
   setMode("collection"); selected=null; drawMarkers();
   const all=collectable(), got=all.filter(c=>isCollected(c.id)).sort((a,b)=>state.mine.collected[b.id]-state.mine.collected[a.id]),
-    not=all.filter(c=>!isCollected(c.id)).sort((a,b)=>({rare:0,uncommon:1,common:2}[rarity(a)]-{rare:0,uncommon:1,common:2}[rarity(b)]));
+    not=all.filter(c=>!isCollected(c.id)).sort((a,b)=>({legendary:-1,rare:0,uncommon:1,common:2}[rarity(a)]-{legendary:-1,rare:0,uncommon:1,common:2}[rarity(b)]));
   const s={n:got.length,tiers:{},coats:new Set(got.map(c=>c.coat))}; got.forEach(c=>s.tiers[rarity(c)]=true);
   const pct=all.length?Math.round(got.length/all.length*100):0;
   panel.innerHTML=`
@@ -845,7 +853,7 @@ function showCollection(){
       <div class="pic" style="${thumbStyle(c)}">${c.photo?"":"🐱"}</div>
       <div class="txt"><b>${esc(topName(c))}</b>${rarChip(c)}<br><span class="muted">Met ${fmtDate(state.mine.collected[c.id])}</span></div></li>`).join("")}</ul>
     ${not.length?`<div class="sec" style="padding-bottom:4px"><h3>Still to find (${not.length})</h3><span class="hint">Tap a mystery cat to see where it lives.</span></div>
-    <ul class="cards">${not.map(c=>`<li class="card mystery" data-id="${c.id}" tabindex="0">
+    <ul class="cards">${not.map(c=>`<li class="card mystery ${rarity(c)==="legendary"?"legendary":""}" data-id="${c.id}" tabindex="0">
       <div class="pic">❔</div>
       <div class="txt"><b>Mystery cat</b>${rarChip(c)}<br><span class="muted">${esc(c.area||"Somewhere in Bangkok")}</span></div></li>`).join("")}</ul>`:""}`;
   panel.scrollTop=0;
@@ -898,6 +906,9 @@ function showAddForm(){
       <div class="sec field"><span>How friendly was it?</span>
         <div class="friendly">${FRIENDLY.map((f,i)=>`<label class="chip" style="border-radius:10px;padding:8px 4px;text-align:center;font-size:.75rem;line-height:1.2"><input type="radio" name="fr" value="${i+1}"><b style="display:block;font-size:1.1rem">${i+1}</b>${f}</label>`).join("")}</div>
         <div class="chips"><label class="chip"><input type="checkbox" id="warnNew">🩹 It scratched or bit me</label></div></div>
+      <div class="sec field"><span>Is it a pedigree breed?</span>
+        <select id="breed"><option value="">No, it's a regular soi cat</option>${Object.entries(BREEDS).map(([k,v])=>`<option value="${k}">👑 ${v}</option>`).join("")}</select>
+        <span class="hint">Pedigree cats are very rare on the street, so they become 👑 Legendary in everyone's cat collection. Only pick one if you're fairly sure.</span></div>
       <div class="sec field"><span>Photo (optional)</span><input type="file" id="ph" accept="image/*"></div>
       <div class="sec row"><button class="btn" id="saveNew" type="submit">Save new cat</button><button class="btn ghost" type="button" id="cancelNew">Cancel</button></div>
     </form>`;
@@ -916,7 +927,8 @@ function showAddForm(){
     if(!draft.coat){ toast("Pick the cat's main colour first"); return; }
     if(desc.length<5){ toast("Add a short description so others can recognise it"); document.getElementById("desc").focus(); return; }
     const fr=f.querySelector("input[name=fr]:checked"), nm=document.getElementById("nm").value.trim();
-    let newId=null; const d={...draft,description:desc,area:document.getElementById("area").value.trim(),name:nm,rate:fr?+fr.value:null,warn:document.getElementById("warnNew").checked};
+    const br=document.getElementById("breed").value;
+    let newId=null; const d={...draft,features:[...draft.features,...(br?[br]:[])],description:desc,area:document.getElementById("area").value.trim(),name:nm,rate:fr?+fr.value:null,warn:document.getElementById("warnNew").checked};
     const btn=document.getElementById("saveNew"); btn.disabled=true; btn.textContent="Saving…";
     if(!await act(async()=>{ newId=await store.addCat(d); },"Cat added to the map!")){ btn.disabled=false; btn.textContent="Save new cat"; return; }
     map.removeLayer(draftMarker); draftMarker=null; draft=null; openCat(newId);
