@@ -305,6 +305,9 @@ const local = {
   async addPhoto(id,p){ const c=find(id); (c.photos=c.photos||[]).push({id:uid(),src:p,uid:"me"}); save(); },
   async removePhoto(id,pid){ const c=find(id); c.photos=(c.photos||[]).filter(x=>x.id!==pid); save(); },
   async loadPhotos(id){ return find(id).photos||[]; },
+  async photoVote(id,key){ const pv=(state.photoVotes=state.photoVotes||{}), m=(state.mine.photoVote=state.mine.photoVote||{});
+    const t=(pv[id]=pv[id]||{}); if(m[id]) t[m[id]]=Math.max(0,(t[m[id]]||0)-1);
+    if(key){ t[key]=(t[key]||0)+1; m[id]=key; } else delete m[id]; save(); },
   async report(type,id,reason){ (state.mine.reported=state.mine.reported||{})[type+":"+id]=reason; save(); },
   async warn(id,on){ const c=find(id), w=(state.mine.warn=state.mine.warn||{}); if(!!w[id]===on) return;
     c.warns=Math.max(0,(c.warns||0)+(on?1:-1)); if(on) w[id]=true; else delete w[id]; save(); }
@@ -335,6 +338,12 @@ const remote = {
   async addPhoto(id,p){ const {error}=await sb.from("cat_photos").insert({cat_id:id,photo:p});
     if(error && /10 photos/.test(error.message||"")) throw {userMsg:"This cat already has the most photos allowed (11)."};
     if(error) throw error; delete photoCache[id]; },
+  async photoVote(id,key){
+    if(!key) await chk(sb.from("photo_votes").delete().eq("cat_id",id).eq("user_id",me));
+    else { const {error}=await sb.from("photo_votes").upsert({cat_id:id,user_id:me,photo_id:key==="main"?null:key});
+      if(error && /photo_votes/.test(error.message||"")) throw {userMsg:"Photo voting isn't switched on yet (08-best-photo.sql)."};
+      if(error) throw error; }
+    await refresh(); },
   async removePhoto(id,pid){ await chk(sb.from("cat_photos").delete().eq("id",pid).eq("user_id",me)); delete photoCache[id]; },
   async loadPhotos(id){ if(photoCache[id]) return photoCache[id];
     const {data,error}=await sb.from("cat_photos").select("id,photo,user_id").eq("cat_id",id).order("created_at");
@@ -361,7 +370,11 @@ async function refresh(){
   const byId={}, nameById={};
   state.cats=cats.map(c=>byId[c.id]={id:c.id,lat:c.lat,lng:c.lng,coat:c.coat,features:c.features||[],description:c.description,area:c.area,
     photo:c.photo,example:c.example,createdBy:c.created_by,sightings:c.sightings,at:Date.parse(c.created_at),lastSeen:Date.parse(c.last_seen),names:[],ratings:[],comments:[]});
-  state.mine={votes:{},rates:{},reported:{},warn:{},collected:{}};
+  state.mine={votes:{},rates:{},reported:{},warn:{},collected:{},photoVote:{}};
+  const pvr=await sb.from("photo_votes").select("cat_id,photo_id,user_id");   /* best-photo votes (once 08 is run) */
+  state.photoVotes={};
+  if(!pvr.error) pvr.data.forEach(v=>{ const k=v.photo_id||"main", t=(state.photoVotes[v.cat_id]=state.photoVotes[v.cat_id]||{});
+    t[k]=(t[k]||0)+1; if(v.user_id===me) state.mine.photoVote[v.cat_id]=k; });
   /* Your collection: every cat you added or logged a sighting of */
   state.cats.forEach(c=>{ if(me && c.createdBy===me) state.mine.collected[c.id]=c.at; });
   const sg=me?await sb.from("sightings").select("cat_id,created_at").eq("user_id",me):{data:[]};
@@ -747,6 +760,8 @@ function openCat(id,fly){
    Each photo gets a score on this device: sharp edges (not blurry) and good lighting (not too dark or washed out).
    The best photo is shown first and used as the cat's picture in the list and collection. */
 const bestCover={}, scoreCache={}, picOrder={};
+const pkey=p=>p.id||"main";
+const photoVotesFor=(id,p)=>(((state.photoVotes||{})[id]||{})[pkey(p)]||0);
 function photoScore(src){ if(scoreCache[src]!==undefined) return Promise.resolve(scoreCache[src]);
   return new Promise(res=>{ const img=new Image(); img.onload=()=>{ try{
       const W=160, sc=W/Math.max(img.width,img.height), w=Math.max(8,Math.round(img.width*sc)), h=Math.max(8,Math.round(img.height*sc));
@@ -765,7 +780,8 @@ function photoScore(src){ if(scoreCache[src]!==undefined) return Promise.resolve
 async function rankPics(c,extra){
   const pics=[...(c.photo?[{id:null,src:c.photo}]:[]),...extra]; if(pics.length<2){ delete picOrder[c.id]; return; }
   const sc=await Promise.all(pics.map(p=>photoScore(p.src)));
-  picOrder[c.id]=pics.map((p,i)=>({p,s:sc[i]})).sort((a,b)=>b.s-a.s).map(o=>o.p.src);
+  const pv=(state.photoVotes||{})[c.id]||{};
+  picOrder[c.id]=pics.map((p,i)=>({p,s:sc[i],v:pv[pkey(p)]||0})).sort((a,b)=>b.v-a.v||b.s-a.s).map(o=>o.p.src);
   bestCover[c.id]=picOrder[c.id][0]; }
 function allPics(c,extra){ const pics=[...(c.photo?[{id:null,src:c.photo}]:[]),...extra], o=picOrder[c.id];
   return o? [...pics].sort((a,b)=>(o.indexOf(a.src)+1||99)-(o.indexOf(b.src)+1||99)) : pics; }
@@ -809,14 +825,19 @@ function wireHero(c,extra){
     const cur=pics[slideAt]||{};
     const canAdd=!c.example && pics.length<11;
     box.innerHTML=`${canAdd?`<label class="btn small ghost">📷 ${pics.length?"Add another photo":"Add a photo"}<input type="file" accept="image/*" id="photoAdd" hidden></label>`:""}
+      ${pics.length>1&&cur.src?(()=>{ const mine=((state.mine.photoVote||{})[id])===pkey(cur), n=photoVotesFor(id,cur);
+        return `<button type="button" class="btn small ${mine?"":"ghost"}" id="favPhoto">${mine?"❤️ Your best photo":"🤍 Best photo?"}${n?` · ${n}`:""}</button>`; })():""}
       ${cur.id && (cur.uid===me||cur.uid==="me")?`<button type="button" class="linkish" id="rmPhoto">Remove this photo</button>`:""}
       ${cur.id && cur.uid!==me && cur.uid!=="me" && REMOTE?reportLink("photo",cur.id,"Report this photo"):""}
-      ${pics.length>1?`<span class="hint">${pics.length} photos. Swipe the picture to see them all.</span>`:""}`;
+      ${pics.length>1?`<span class="hint">${pics.length} photos. Swipe to see them all, and tap 🤍 on the one that shows the cat best.</span>`:""}`;
     wireReports(()=>{ delete photoCache[id]; openCat(id); });
     const pa=document.getElementById("photoAdd");
     if(pa) pa.onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const ph=await shrink(f);
       if(await act(()=>c.photo?store.addPhoto(id,ph):store.setPhoto(id,ph),"Photo added. Thanks!")){
         openCat(id); } };
+    const fv=document.getElementById("favPhoto");
+    if(fv) fv.onclick=async()=>{ const mine=((state.mine.photoVote||{})[id])===pkey(cur);
+      if(await act(()=>store.photoVote(id,mine?null:pkey(cur)), mine?"Vote removed":"Thanks! The photo with the most votes goes first.")) openCat(id); };
     const rm=document.getElementById("rmPhoto");
     if(rm) rm.onclick=async()=>{ if(!confirm("Remove this photo?")) return;
       if(await act(()=>store.removePhoto(id,cur.id),"Photo removed")) openCat(id); }; }
