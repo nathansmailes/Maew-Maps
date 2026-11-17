@@ -417,6 +417,7 @@ const MAPTILER_KEY="zpCPFa06n8j9PjEwI37M";
 const osm=()=>L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,
   attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
 const sharp=L.tileLayer(`https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,{maxZoom:20,
+  crossOrigin:!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()),   /* in the iPhone app, send its address (capacitor://localhost) so the key's allowed-origins list can include it */
   attribution:'<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'}).addTo(map);
 /* "Show me where I am": only used on this device to move the map. Your location is never saved or sent to Maew Maps. */
 let meDot=null;
