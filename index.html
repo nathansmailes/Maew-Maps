@@ -201,6 +201,8 @@ textarea{min-height:70px;resize:vertical}
   .hero{height:min(260px,34vh)}
   .banner{white-space:normal;justify-content:space-between;border-radius:14px}
 }
+/* iPhones zoom the page in when a text box is smaller than 16px; keep them at 16px there */
+@supports (-webkit-touch-callout:none){ input,textarea,select{font-size:16px} }
 @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important} }
 </style>
 </head>
