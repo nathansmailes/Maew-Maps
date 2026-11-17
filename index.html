@@ -541,6 +541,7 @@ function needSignIn(){ if(!REMOTE||!isGuest) return false; showSignIn(); return 
 function showSignIn(step){
   if(view!=="signin") returnTo={view,selected};
   setMode("signin");
+  if(step==="password"){ showReviewSignIn(); return; }
   panel.innerHTML= step!=="code" ? `
     <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Back</button>
       <h2>Sign in to join in</h2>
@@ -561,6 +562,7 @@ function showSignIn(step){
   if(step!=="code"){
     document.getElementById("emailForm").onsubmit=async e=>{ e.preventDefault();
       signEmail=document.getElementById("email").value.trim().toLowerCase();
+      if(signEmail===REVIEW_EMAIL){ showSignIn("password"); return; }
       const b=document.getElementById("sendBtn"); b.disabled=true; b.textContent="Sending…";
       try{ await sendCode(signEmail); showSignIn("code"); }
       catch(err){ console.error(err); b.disabled=false; b.textContent="Send me a code";
@@ -574,6 +576,24 @@ function showSignIn(step){
       try{ await verifyCode(code); signedInNow(); }
       catch(err){ console.error(err); b.disabled=false; b.textContent="Sign in"; toast("That code didn't work. Check it, or go back and get a new one."); } };
   }
+}
+/* App Store reviewers can't receive our email codes, so this one review account signs in with a password instead.
+   The account is created by hand in Supabase (Authentication > Users > Add user); its password is only given to Apple. */
+const REVIEW_EMAIL="maewmaps+review@gmail.com";
+function showReviewSignIn(){
+  panel.innerHTML=`<div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Use a different email</button>
+      <h2>Review account</h2><p class="muted" style="margin:0">Type the password for <b>${esc(signEmail)}</b>.</p></div>
+    <form class="sec field" id="pwForm"><span>Password</span>
+      <input type="password" id="pw" autocomplete="current-password" required style="max-width:260px">
+      <button class="btn" id="pwBtn" style="align-self:flex-start">Sign in</button></form>`;
+  panel.scrollTop=0;
+  document.getElementById("back").onclick=()=>showSignIn();
+  document.getElementById("pw").focus();
+  document.getElementById("pwForm").onsubmit=async e=>{ e.preventDefault();
+    const b=document.getElementById("pwBtn"); b.disabled=true; b.textContent="Checking…";
+    const {data,error}=await sb.auth.signInWithPassword({email:signEmail,password:document.getElementById("pw").value});
+    if(error){ console.error(error); b.disabled=false; b.textContent="Sign in"; toast("That password didn't work."); return; }
+    me=data.user.id; isGuest=false; myEmail=data.user.email||signEmail; await refresh(); signedInNow(); };
 }
 function goBack(){ const r=returnTo; returnTo=null;
   if(r&&r.view==="cat"&&r.selected) openCat(r.selected); else if(r&&r.view==="ranks"&&!isGuest) showRanks(); else showList(); }
