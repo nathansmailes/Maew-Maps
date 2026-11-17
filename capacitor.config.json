@@ -4,9 +4,14 @@
   "webDir": "www",
   "ios": {
     "contentInset": "never",
-    "backgroundColor": "#0f6b5c"
+    "backgroundColor": "#0f6b5c",
+    "appendUserAgent": "MaewMapsApp"
   },
   "plugins": {
-    "SplashScreen": { "launchAutoHide": true, "backgroundColor": "#0f6b5c", "showSpinner": false }
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#0f6b5c",
+      "showSpinner": false
+    }
   }
 }
