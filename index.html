@@ -572,7 +572,8 @@ function showSignIn(step){
 function goBack(){ const r=returnTo; returnTo=null;
   if(r&&r.view==="cat"&&r.selected) openCat(r.selected); else if(r&&r.view==="ranks"&&!isGuest) showRanks(); else showList(); }
 function signedInNow(){ renderChip(); toast("You're signed in. Welcome!"); if(!state.nick) showRanks(); else goBack(); }
-const backHere=()=>location.origin+location.pathname;
+const isNativeApp=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const backHere=()=>isNativeApp?"https://nathansmailes.github.io/Maew-Maps/":location.origin+location.pathname;
 /* After the email link is tapped (here or on another device), refresh to see if this guest is now a real account */
 async function pickUpSignIn(){
   const {data,error}=await sb.auth.refreshSession(); if(error||!data.session) return false;
@@ -862,7 +863,14 @@ function collectBox(c){
     <div>${rarChip(c)} ${got?`<b>✓ In your collection</b> <span class="muted">since ${fmtDate(got)}</span>`:`<b>Not in your collection yet</b>`}</div>
     <button class="btn small ${got?"ghost":""}" id="collectBtn" style="align-self:flex-start">${got?"📍 I'm with this cat again (+1 point)":"📍 I'm with this cat. Collect!"}</button>
     <span class="hint">You need to be within ${COLLECT_M} m of where the cat lives. Your location is checked on your phone and never saved.</span></div>`; }
-function whereAmI(){ return new Promise((res,rej)=>{
+async function nativeWhereAmI(){   /* inside the iPhone app: use the phone's own location service */
+  const G=window.Capacitor.Plugins.Geolocation;
+  try{ const p=await G.getCurrentPosition({enableHighAccuracy:true,timeout:15000,maximumAge:0});
+    return {lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}; }
+  catch(e){ const denied=/denied|permission/i.test((e&&e.message)||"");
+    throw {userMsg:denied?"Allow location for Maew Maps in Settings to collect cats. It's only checked on your phone.":"Couldn't find your location. Try again outside or near a window."}; } }
+function whereAmI(){ if(isNativeApp&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Geolocation) return nativeWhereAmI();
+  return new Promise((res,rej)=>{
   if(!navigator.geolocation){ rej({userMsg:"This phone or browser can't share its location."}); return; }
   navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}),
     e=>rej({userMsg:e.code===1?"Allow location for Maew Maps to collect cats. It's only checked on your phone.":"Couldn't find your location. Try again outside or near a window."}),

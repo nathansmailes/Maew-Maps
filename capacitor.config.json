@@ -1,0 +1,12 @@
+{
+  "appId": "com.maewmaps.app",
+  "appName": "Maew Maps",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0f6b5c"
+  },
+  "plugins": {
+    "SplashScreen": { "launchAutoHide": true, "backgroundColor": "#0f6b5c", "showSpinner": false }
+  }
+}
