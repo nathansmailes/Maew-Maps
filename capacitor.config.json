@@ -13,5 +13,8 @@
       "backgroundColor": "#0f6b5c",
       "showSpinner": false
     }
+  },
+  "server": {
+    "hostname": "nathansmailes.github.io"
   }
 }
