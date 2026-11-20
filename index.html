@@ -38,7 +38,7 @@ button,input,textarea,select{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:3px solid var(--marigold);outline-offset:2px}
 
-header{display:flex;align-items:center;gap:12px;padding:10px max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);z-index:1000}
+header{display:flex;align-items:center;gap:12px;padding:10px max(16px,env(safe-area-inset-left,0px));padding-top:max(10px,env(safe-area-inset-top,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line);z-index:1000}
 .brand{cursor:pointer;font-family:var(--display);font-weight:800;font-size:1.3rem;letter-spacing:-.01em;display:flex;align-items:center;gap:8px;margin:0}
 .brand small{font-family:var(--body);font-weight:400;font-size:.85rem;color:var(--muted)}
 header .spacer{flex:1}
@@ -104,10 +104,10 @@ main{flex:1;display:flex;min-height:0;position:relative}
 .meter .ends{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted)}
 
 /* Profile card */
-.hero{height:200px;background-size:cover;background-position:center;display:grid;place-items:center;font-size:4rem;position:relative;flex:none}
+.hero{height:300px;background-color:var(--soft);background-size:contain;background-repeat:no-repeat;background-position:center;display:grid;place-items:center;font-size:4rem;position:relative;flex:none}
 .slides{position:absolute;inset:0;display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none}
 .slides::-webkit-scrollbar{display:none}
-.slide{flex:0 0 100%;scroll-snap-align:center;background-size:cover;background-position:center}
+.slide{flex:0 0 100%;scroll-snap-align:center;background-color:var(--soft);background-size:contain;background-repeat:no-repeat;background-position:center}
 .dots{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;background:rgba(0,0,0,.35);padding:5px 8px;border-radius:999px}
 .dots i{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.5)}.dots i.on{background:#fff}
 .hero .arr{position:absolute;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:50%;border:0;background:var(--panel);color:var(--ink);font-size:1.1rem;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.2);cursor:pointer}
@@ -198,9 +198,11 @@ textarea{min-height:70px;resize:vertical}
   header .btn,header .rankchip{padding:8px 12px;font-size:.9rem}
   .rankchip span{display:none}
   header{gap:8px}
-  .hero{height:150px}
+  .hero{height:min(260px,34vh)}
   .banner{white-space:normal;justify-content:space-between;border-radius:14px}
 }
+/* iPhones zoom the page in when a text box is smaller than 16px; keep them at 16px there */
+@supports (-webkit-touch-callout:none){ input,textarea,select{font-size:16px} }
 @media (prefers-reduced-motion: reduce){ *{transition:none!important;animation:none!important} }
 </style>
 </head>
@@ -417,6 +419,7 @@ const MAPTILER_KEY="zpCPFa06n8j9PjEwI37M";
 const osm=()=>L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,
   attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'});
 const sharp=L.tileLayer(`https://api.maptiler.com/maps/streets-v2/256/{z}/{x}/{y}{r}.png?key=${MAPTILER_KEY}`,{maxZoom:20,
+  crossOrigin:!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()),   /* in the iPhone app, send its address (capacitor://localhost) so the key's allowed-origins list can include it */
   attribution:'<a href="https://www.maptiler.com/copyright/" target="_blank">&copy; MapTiler</a> <a href="https://www.openstreetmap.org/copyright" target="_blank">&copy; OpenStreetMap contributors</a>'}).addTo(map);
 /* "Show me where I am": only used on this device to move the map. Your location is never saved or sent to Maew Maps. */
 let meDot=null;
@@ -434,6 +437,11 @@ map.on("locationerror",()=>{ document.querySelector(".locate")?.classList.remove
   toast("Couldn't find your location. Check that location is allowed for this app or browser."); });
 let tileErrors=0;
 sharp.on("tileerror",()=>{ if(++tileErrors===4){ map.removeLayer(sharp); osm().addTo(map); } });
+/* In the iPhone app the page runs from capacitor://localhost, which the MapTiler key doesn't allow. MapTiler then sends
+   "Invalid key" pictures instead of errors, so the fallback above never fires. Check the key once and switch to OpenStreetMap if refused. */
+if(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform()){
+  fetch(`https://api.maptiler.com/maps/streets-v2/256/0/0/0.png?key=${MAPTILER_KEY}`).then(r=>{ if(!r.ok) throw 0; })
+    .catch(()=>{ if(map.hasLayer(sharp)){ map.removeLayer(sharp); osm().addTo(map); } }); }
 
 const markers={}; let selected=null, picking=false, draft=null, draftMarker=null;
 function pinIcon(cat,extra=""){
@@ -535,6 +543,7 @@ function needSignIn(){ if(!REMOTE||!isGuest) return false; showSignIn(); return 
 function showSignIn(step){
   if(view!=="signin") returnTo={view,selected};
   setMode("signin");
+  if(step==="password"){ showReviewSignIn(); return; }
   panel.innerHTML= step!=="code" ? `
     <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Back</button>
       <h2>Sign in to join in</h2>
@@ -555,6 +564,7 @@ function showSignIn(step){
   if(step!=="code"){
     document.getElementById("emailForm").onsubmit=async e=>{ e.preventDefault();
       signEmail=document.getElementById("email").value.trim().toLowerCase();
+      if(signEmail===REVIEW_EMAIL){ showSignIn("password"); return; }
       const b=document.getElementById("sendBtn"); b.disabled=true; b.textContent="Sending…";
       try{ await sendCode(signEmail); showSignIn("code"); }
       catch(err){ console.error(err); b.disabled=false; b.textContent="Send me a code";
@@ -569,10 +579,29 @@ function showSignIn(step){
       catch(err){ console.error(err); b.disabled=false; b.textContent="Sign in"; toast("That code didn't work. Check it, or go back and get a new one."); } };
   }
 }
+/* App Store reviewers can't receive our email codes, so this one review account signs in with a password instead.
+   The account is created by hand in Supabase (Authentication > Users > Add user); its password is only given to Apple. */
+const REVIEW_EMAIL="maewmaps+review@gmail.com";
+function showReviewSignIn(){
+  panel.innerHTML=`<div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Use a different email</button>
+      <h2>Review account</h2><p class="muted" style="margin:0">Type the password for <b>${esc(signEmail)}</b>.</p></div>
+    <form class="sec field" id="pwForm"><span>Password</span>
+      <input type="password" id="pw" autocomplete="current-password" required style="max-width:260px">
+      <button class="btn" id="pwBtn" style="align-self:flex-start">Sign in</button></form>`;
+  panel.scrollTop=0;
+  document.getElementById("back").onclick=()=>showSignIn();
+  document.getElementById("pw").focus();
+  document.getElementById("pwForm").onsubmit=async e=>{ e.preventDefault();
+    const b=document.getElementById("pwBtn"); b.disabled=true; b.textContent="Checking…";
+    const {data,error}=await sb.auth.signInWithPassword({email:signEmail,password:document.getElementById("pw").value});
+    if(error){ console.error(error); b.disabled=false; b.textContent="Sign in"; toast("That password didn't work."); return; }
+    me=data.user.id; isGuest=false; myEmail=data.user.email||signEmail; await refresh(); signedInNow(); };
+}
 function goBack(){ const r=returnTo; returnTo=null;
   if(r&&r.view==="cat"&&r.selected) openCat(r.selected); else if(r&&r.view==="ranks"&&!isGuest) showRanks(); else showList(); }
 function signedInNow(){ renderChip(); toast("You're signed in. Welcome!"); if(!state.nick) showRanks(); else goBack(); }
-const backHere=()=>location.origin+location.pathname;
+const isNativeApp=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const backHere=()=>isNativeApp?"https://nathansmailes.github.io/Maew-Maps/":location.origin+location.pathname;
 /* After the email link is tapped (here or on another device), refresh to see if this guest is now a real account */
 async function pickUpSignIn(){
   const {data,error}=await sb.auth.refreshSession(); if(error||!data.session) return false;
@@ -862,7 +891,14 @@ function collectBox(c){
     <div>${rarChip(c)} ${got?`<b>✓ In your collection</b> <span class="muted">since ${fmtDate(got)}</span>`:`<b>Not in your collection yet</b>`}</div>
     <button class="btn small ${got?"ghost":""}" id="collectBtn" style="align-self:flex-start">${got?"📍 I'm with this cat again (+1 point)":"📍 I'm with this cat. Collect!"}</button>
     <span class="hint">You need to be within ${COLLECT_M} m of where the cat lives. Your location is checked on your phone and never saved.</span></div>`; }
-function whereAmI(){ return new Promise((res,rej)=>{
+async function nativeWhereAmI(){   /* inside the iPhone app: use the phone's own location service */
+  const G=window.Capacitor.Plugins.Geolocation;
+  try{ const p=await G.getCurrentPosition({enableHighAccuracy:true,timeout:15000,maximumAge:0});
+    return {lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}; }
+  catch(e){ const denied=/denied|permission/i.test((e&&e.message)||"");
+    throw {userMsg:denied?"Allow location for Maew Maps in Settings to collect cats. It's only checked on your phone.":"Couldn't find your location. Try again outside or near a window."}; } }
+function whereAmI(){ if(isNativeApp&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Geolocation) return nativeWhereAmI();
+  return new Promise((res,rej)=>{
   if(!navigator.geolocation){ rej({userMsg:"This phone or browser can't share its location."}); return; }
   navigator.geolocation.getCurrentPosition(p=>res({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy}),
     e=>rej({userMsg:e.code===1?"Allow location for Maew Maps to collect cats. It's only checked on your phone.":"Couldn't find your location. Try again outside or near a window."}),

@@ -1,0 +1,20 @@
+{
+  "appId": "com.maewmaps.app",
+  "appName": "Maew Maps",
+  "webDir": "www",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0f6b5c",
+    "appendUserAgent": "MaewMapsApp"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#0f6b5c",
+      "showSpinner": false
+    }
+  },
+  "server": {
+    "hostname": "nathansmailes.github.io"
+  }
+}
