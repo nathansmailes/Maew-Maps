@@ -350,7 +350,7 @@ const remote = {
   async loadPhotos(id){ if(photoCache[id]) return photoCache[id];
     const {data,error}=await sb.from("cat_photos").select("id,photo,user_id").eq("cat_id",id).order("created_at");
     if(error) return [];   /* 07-more-photos.sql not run yet */
-    return photoCache[id]=data.map(x=>({id:x.id,src:x.photo,uid:x.user_id})); },
+    return photoCache[id]=data.filter(x=>!isBlocked(x.user_id)).map(x=>({id:x.id,src:x.photo,uid:x.user_id})); },
   async warn(id,on){
     if(on){ const {error}=await sb.from("warnings").insert({cat_id:id}); if(error&&error.code!=="23505") throw error; }
     else await chk(sb.from("warnings").delete().eq("cat_id",id).eq("user_id",me));
@@ -370,7 +370,8 @@ async function refresh(){
   res.forEach(r=>{ if(r.error) throw r.error; });
   const [cats,names,votes,ratings,comments]=res.map(r=>r.data);
   const byId={}, nameById={};
-  state.cats=cats.map(c=>byId[c.id]={id:c.id,lat:c.lat,lng:c.lng,coat:c.coat,features:c.features||[],description:c.description,area:c.area,
+  await syncBlocked();
+  state.cats=cats.filter(c=>!isBlocked(c.created_by)).map(c=>byId[c.id]={id:c.id,lat:c.lat,lng:c.lng,coat:c.coat,features:c.features||[],description:c.description,area:c.area,
     photo:c.photo,example:c.example,createdBy:c.created_by,sightings:c.sightings,at:Date.parse(c.created_at),lastSeen:Date.parse(c.last_seen),names:[],ratings:[],comments:[]});
   state.mine={votes:{},rates:{},reported:{},warn:{},collected:{},photoVote:{}};
   const pvr=await sb.from("photo_votes").select("cat_id,photo_id,user_id");   /* best-photo votes (once 08 is run) */
@@ -389,7 +390,7 @@ async function refresh(){
   names.forEach(n=>{ const c=byId[n.cat_id]; if(!c) return; const o={n:n.name,v:0,id:n.id}; nameById[n.id]=o; c.names.push(o); });
   votes.forEach(v=>{ const o=nameById[v.name_id]; if(!o) return; o.v++; if(v.user_id===me) state.mine.votes[v.cat_id]=o.n; });
   ratings.forEach(r=>{ const c=byId[r.cat_id]; if(!c) return; c.ratings.push(r.score); if(r.user_id===me) state.mine.rates[r.cat_id]=r.score; });
-  comments.forEach(m=>{ const c=byId[m.cat_id]; if(c) c.comments.push({id:m.id,uid:m.user_id,who:m.who,t:m.body,at:Date.parse(m.created_at)}); });
+  comments.forEach(m=>{ const c=byId[m.cat_id]; if(c && !isBlocked(m.user_id)) c.comments.push({id:m.id,uid:m.user_id,who:m.who,t:m.body,at:Date.parse(m.created_at)}); });
   /* Spotter points and leaderboard (only once 03-ranks.sql has been run) */
   const [pts,board,prof]=await Promise.all([sb.rpc("all_points"),sb.rpc("leaderboard"),
     me?sb.from("profiles").select("nickname").eq("user_id",me).maybeSingle():Promise.resolve({data:null})]);
@@ -507,6 +508,7 @@ function showRanks(){
       <span class="hint">Use a nickname, not your full name. Without one, you show as "Anonymous cat fan".</span></div>
     <div class="sec"><h3>Your account</h3>
       <span class="hint">Signed in as ${esc(myEmail)}. <a href="privacy.html" target="_blank">Privacy policy</a></span>
+      ${blocked.size?`<span class="hint">You've blocked ${blocked.size} ${blocked.size===1?"person":"people"}. <button type="button" class="linkish" id="unblockAll">Unblock everyone</button></span>`:""}
       <button type="button" class="linkish" id="delAcct">Delete my account</button>
       <div id="delConfirm" class="repbox" hidden>
         <span>This permanently deletes your sign-in, nickname, comments, votes, ratings and points. Cats you added stay on the map, without your name.</span>
@@ -518,6 +520,8 @@ function showRanks(){
   document.getElementById("back").onclick=showList;
   document.getElementById("colBtn2").onclick=showCollection;
   document.getElementById("signOut").onclick=signOut;
+  const ub=document.getElementById("unblockAll");
+  if(ub) ub.onclick=async()=>{ for(const u of [...blocked]) blocked.delete(u); await setBlocked("",false); toast("Everyone unblocked"); showRanks(); };
   document.getElementById("delAcct").onclick=()=>document.getElementById("delConfirm").hidden=false;
   document.getElementById("delNo").onclick=()=>document.getElementById("delConfirm").hidden=true;
   document.getElementById("delYes").onclick=async()=>{ const b=document.getElementById("delYes"); b.disabled=true; b.textContent="Deleting…";
@@ -551,7 +555,8 @@ function showSignIn(step){
     <form class="sec field" id="emailForm"><span>Your email</span>
       <input type="email" id="email" autocomplete="email" required placeholder="you@example.com" value="${esc(signEmail)}" style="width:100%;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg)">
       <button class="btn" id="sendBtn" style="align-self:flex-start">Email me a sign-in code</button>
-      <span class="hint">We only use your email to sign you in. It's never shown to other people.</span></form>` : `
+      <span class="hint">We only use your email to sign you in. It's never shown to other people.</span>
+      <span class="hint">By signing in you agree to our <a href="terms.html" target="_blank">community rules</a>: no abusive, hateful or unkind posts. Anything like that is removed, and people who post it are removed too.</span></form>` : `
     <div class="sec"><button class="btn small ghost" id="back" style="align-self:flex-start">← Use a different email</button>
       <h2>Check your email</h2>
       <p class="muted" style="margin:0">We sent an email to <b>${esc(signEmail)}</b>. Type the code from it below, or tap the link in it. It can take a minute, and it may be in your junk folder.</p>
@@ -633,6 +638,32 @@ async function signOut(){
 /* ---------- Reporting ---------- */
 const REASONS={rude:"Rude or hurtful",spam:"Spam or advert",fake:"Not a real cat",duplicate:"Same cat is already on the map",private:"Shows someone's face or private details"};
 const reported=(type,id)=>(state.mine.reported||{})[type+":"+id];
+/* ---------- Blocking: hide everything one person posts, for you ---------- */
+const BKEY="maewmaps.blocked";
+let blocked=new Set((()=>{ try{ return JSON.parse(localStorage.getItem(BKEY))||[]; }catch(e){ return []; } })());
+const isBlocked=uid=>!!uid && blocked.has(uid);
+async function syncBlocked(){   /* keep the list with the account too, so it follows you to other devices */
+  if(!REMOTE||!sb) return;
+  try{ const {data:{session}}=await sb.auth.getSession(); const b=session&&session.user.user_metadata&&session.user.user_metadata.blocked;
+    if(Array.isArray(b)) b.forEach(x=>blocked.add(x)); localStorage.setItem(BKEY,JSON.stringify([...blocked])); }catch(e){} }
+async function setBlocked(uid,on){
+  if(on) blocked.add(uid); else blocked.delete(uid);
+  try{ localStorage.setItem(BKEY,JSON.stringify([...blocked])); }catch(e){}
+  if(REMOTE&&sb&&me) try{ await sb.auth.updateUser({data:{blocked:[...blocked]}}); }catch(e){}
+  Object.keys(photoCache).forEach(k=>delete photoCache[k]);
+  if(REMOTE) await refresh(); }
+function blockLink(uid){
+  return uid && uid!==me && uid!=="me" ? `<button type="button" class="rep blk" data-uid="${esc(uid)}">🚫 Block</button><div class="repbox" hidden></div>` : ""; }
+function wireBlocks(after){
+  panel.querySelectorAll(".blk").forEach(b=>b.onclick=()=>{
+    const box=b.nextElementSibling; if(!box.hidden){ box.hidden=true; return; }
+    box.innerHTML=`<span>Block this person? You won't see any cats, photos or comments they post. They aren't told.</span>
+      <div class="row"><button type="button" class="btn small" data-yes style="background:var(--danger)">Block</button><button type="button" class="btn small ghost" data-cancel>Cancel</button></div>
+      <span class="hint">If they posted something abusive, please report it too, so we can remove it for everyone.</span>`;
+    box.hidden=false;
+    box.querySelector("[data-cancel]").onclick=()=>box.hidden=true;
+    box.querySelector("[data-yes]").onclick=async()=>{ await setBlocked(b.dataset.uid,true); toast("Blocked. You won't see their posts."); after(); };
+  }); }
 function reportLink(type,id,label){
   return reported(type,id) ? `<span class="hint">⚑ You reported this. Thanks.</span>`
     : `<button type="button" class="rep" data-type="${type}" data-id="${id}">⚑ ${label}</button><div class="repbox" hidden></div>`; }
@@ -687,7 +718,7 @@ function showList(){
       </li>`).join("") || `<li class="sec muted">No cats match "${esc(query)}".</li>`}
     </ul>
     <div class="foot">
-      <a href="privacy.html" style="color:inherit">Privacy policy</a>
+      <span><a href="privacy.html" style="color:inherit">Privacy policy</a> · <a href="terms.html" style="color:inherit">Community rules</a></span>
       <span>Cats nobody has seen for a year are taken off the map. Faded pins have not been seen for 9 months.</span>
       ${REMOTE?`<span>Cats, votes and comments are shared with everyone using Maew Maps.</span>`:`
       <span>Everything is saved in this browser only, for now. Other people won't see your cats yet.</span>
@@ -725,6 +756,7 @@ function openCat(id,fly){
       ${Date.now()-lastSeen(c)>FADING?`<div class="fading">Nobody has seen this cat for ${ago(lastSeen(c)).replace(" ago","")}. It will be taken off the map ${Math.max(1,Math.round((YEAR-(Date.now()-lastSeen(c)))/DAY))} days from now unless someone spots it.</div>`:""}
       ${collectBox(c)}
       ${reportLink("cat",c.id,"Report this listing")}
+      ${REMOTE&&!c.example?blockLink(c.createdBy).replace("🚫 Block","🚫 Block the person who added this cat"):""}
     </div>
     <div class="sec">
       <h3>What it looks like</h3>
@@ -756,11 +788,12 @@ function openCat(id,fly){
       </form>
       <ul class="comments">${[...c.comments].filter(m=>!reported("comment",m.id)).sort((a,b)=>b.at-a.at).map(m=>`
         <li><span class="who">${esc(m.who||"Anonymous")} ${rankBadge(m.uid)}<span class="when">${ago(m.at)}</span></span><span>${esc(m.t)}</span>
-          <div class="cact">${tr(m.t)}${m.id?reportLink("comment",m.id,"Report"):""}</div></li>`).join("") || '<li class="muted">No comments yet. Be the first.</li>'}</ul>
+          <div class="cact">${tr(m.t)}${m.id?reportLink("comment",m.id,"Report"):""}${m.id&&REMOTE?blockLink(m.uid):""}</div></li>`).join("") || '<li class="muted">No comments yet. Be the first.</li>'}</ul>
     </div>`;
   panel.scrollTop=0;
   wireHero(c,[]);
   wireReports(()=>openCat(id));
+  wireBlocks(()=>{ if(state.cats.some(x=>x.id===id)) openCat(id); else showList(); });
   if(!c.example) store.loadPhotos(id).then(async extra=>{ await rankPics(c,extra); if(selected!==id||view!=="cat") return; wireHero(c,extra); });
   const cb=document.getElementById("collectBtn"); if(cb) cb.onclick=()=>collectCat(id,cb);
   panel.querySelectorAll(".vote").forEach(b=>b.onclick=async()=>{
@@ -857,9 +890,10 @@ function wireHero(c,extra){
       ${pics.length>1&&cur.src?(()=>{ const mine=((state.mine.photoVote||{})[id])===pkey(cur), n=photoVotesFor(id,cur);
         return `<button type="button" class="btn small ${mine?"":"ghost"}" id="favPhoto">${mine?"❤️ Your best photo":"🤍 Best photo?"}${n?` · ${n}`:""}</button>`; })():""}
       ${cur.id && (cur.uid===me||cur.uid==="me")?`<button type="button" class="linkish" id="rmPhoto">Remove this photo</button>`:""}
-      ${cur.id && cur.uid!==me && cur.uid!=="me" && REMOTE?reportLink("photo",cur.id,"Report this photo"):""}
+      ${cur.id && cur.uid!==me && cur.uid!=="me" && REMOTE?reportLink("photo",cur.id,"Report this photo")+blockLink(cur.uid):""}
       ${pics.length>1?`<span class="hint">${pics.length} photos. Swipe to see them all, and tap 🤍 on the one that shows the cat best.</span>`:""}`;
     wireReports(()=>{ delete photoCache[id]; openCat(id); });
+    wireBlocks(()=>{ if(state.cats.some(x=>x.id===id)) openCat(id); else showList(); });
     const pa=document.getElementById("photoAdd");
     if(pa) pa.onchange=async e=>{ const f=e.target.files[0]; if(!f) return; const ph=await shrink(f);
       if(await act(()=>c.photo?store.addPhoto(id,ph):store.setPhoto(id,ph),"Photo added. Thanks!")){
